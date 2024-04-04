@@ -11,7 +11,7 @@ using StaticArrays
 using Printf
 using StatsBase
 using Distributions
-
+using DelimitedFiles
 # Get the types needed (MatTypes.jl in modules folder)
 include(abspath(typePath,"MatTypes.jl"))
 
