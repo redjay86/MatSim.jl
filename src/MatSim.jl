@@ -2,16 +2,34 @@ module MatSim
 
 
 currentDir = abspath(@__DIR__)
-libPath = relpath(joinpath(currentDir,"../libraries"))
-typePath = relpath(joinpath(currentDir,"../types"))
+libPath = relpath(joinpath(currentDir,"libraries"))
+typePath = relpath(joinpath(currentDir,"types"))
 
+# Add all of the public packages
+using LinearAlgebra
+using StaticArrays
+using Printf
+using StatsBase
+using Distributions
+
+# Get the types needed (MatTypes.jl in modules folder)
 include(abspath(typePath,"MatTypes.jl"))
-include(abspath(libPath,"utils.jl"))
+
+# Add all things that modify/handle crystal structures (CrystalUtils.jl in modules folder)
+include(abspath(libPath,"utils.jl"))   # Working with Crystal structures explicitly
+include(abspath(libPath,"enumeration.jl")) # Working with enumeration files to generate crystal structures or set of crystals.
+include(abspath(libPath,"structuresin.jl"))  # Reading and writing dataset summary files (called structures.in)
+
+# Interface with VASP (VASP.jl in modules)
 include(abspath(libPath,"vaspUtils.jl"))
+
+# Metrop Hastings Algorithms (MatML.jl in modules folder)
 include(abspath(libPath,"metrop.jl"))
-include(abspath(libPath,"enumeration.jl"))
-include(abspath(libPath,"structuresin.jl"))
+
+# Lennard Jones model (Bundled together with MatML.jl in modules folder)
 include(abspath(libPath,"LennardJones.jl"))
 
+# Thermodynamic simulations (Not in separate module for now.)
+include(abspath(libPath,"NS.jl"))
 
 end # module MatSim

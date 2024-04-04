@@ -4,26 +4,26 @@
 
 
 
-function readStructuresIn(folder::String,file::String,species::Vector{String};overwriteLatPar = false)
-    cd(folder)
-    file = open(file,"r")
-    pos = readlines(file)
-
-    data = Vector{Crystal}()
-    for (idx,line) in enumerate(pos)
-
-        if occursin("#--",line)
-            nAtoms = sum([parse(Int64,x) for x in split(pos[idx + 6])])
-            startpoint = idx + 1
-            theend = idx + 7 + nAtoms
-            thisCrystal = Crystal(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyFP = parse(Float64,pos[theend + 2 ]))
-            if !isnan(thisCrystal.energyFP)
-                push!(data,thisCrystal)
-            end
-        end
-    end
-    return DataSet(data)
-end
+#function readStructuresIn(folder::String,file::String,species::Vector{String};overwriteLatPar = false)
+#    cd(folder)
+#    file = open(file,"r")
+#    pos = readlines(file)
+#
+#    data = Vector{Crystal}()
+#    for (idx,line) in enumerate(pos)
+#
+#        if occursin("#--",line)
+#            nAtoms = sum([parse(Int64,x) for x in split(pos[idx + 6])])
+#            startpoint = idx + 1
+#            theend = idx + 7 + nAtoms
+#            thisCrystal = Crystal(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyFP = parse(Float64,pos[theend + 2 ]))
+#            if !isnan(thisCrystal.energyFP)
+#                push!(data,thisCrystal)
+#            end
+#        end
+#    end
+#    return DataSet(data)
+#end
 
 function readVaspFolders(folder::String,file::String;poscar = "CONTCAR",outcar = "OUTCAR")
 
