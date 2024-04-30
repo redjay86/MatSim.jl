@@ -1,12 +1,32 @@
 
-function initializeSimulation(lPar,lVecs,minSep,nAtoms,nConfigs,nWalks,V_ϵ)
-    configs = [buildRandom(lPar,lVecs,nAtoms,minSep) for i in 1:nConfigs]
-    return NS(lPar,nConfigs,nWalks,V_ϵ,nAtoms,configs)
+function initializeSimulation(inputs,species,model)
+    parsedlVecs = [parse.(Float64,split(x[1])) for x in inputs["lVecs"]]
+    lVecs = hcat(parsedlVecs...)
+    configs = [buildRandom(inputs["lPar"],lVecs,inputs["nAtoms"],inputs["minSep"],species) for i in 1:inputs["K"]]
+    for i in configs
+        i.energyPred = totalEnergy(i,model)
+    end
+    return NS(inputs["K"],inputs["Kr"],inputs["L"],inputs["eps"],inputs["walkMethod"],configs)
 end
 
-function randomWalk(config::Crystal,nWalk::Int64,LJcutoff::Float64,LJparams::Array{Float64,2})
+function nestedSampling(NS::NS)
+
+    V = (NS.K - NS.Kr + 1)/(NS.K + 1)
+
+    i = 1
+    while V > NS.eps
+        ## Find the top Kr highest energies
+
+        i += 1
+        V = ((NS.K - NS.Kr + 1)/(NS.K + 1))^i
+
+    end
+
+end
+# Perform a random walk on a single configuration subject to the constraint that the total energy be less than the cutoff
+function randomWalk(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
     # Loop over the number of random walks to take.
-    oldEnergy = sum(totalEnergy(config,LJcutoff,params = LJparams))
+    oldEnergy = totalEnergy(config,model)
     newEnergy = 1e6
     for iWalk in 1:nWalk
         #Loop over all of the atoms in the simulation.
@@ -14,7 +34,7 @@ function randomWalk(config::Crystal,nWalk::Int64,LJcutoff::Float64,LJparams::Arr
         while newEnergy > oldEnergy
             randomDisplacment = [[ (rand(3).-0.5)*0.1 for i =1:config.aType[j]] for j = 1:config.order]
             config.atomicBasis .+= randDisplacement  # Use the displacement to move this atom.
-            newEnergy = sum(totalEnergy(config,LJcutoff,params = LJparams))
+            newEnergy = totalEnergy(config,model)
         end
         # Once I've found a config with a lower energy, set the new energy to be the old in preparation for the next step in the random walk.
         oldEnergy = newEnergy  

@@ -12,6 +12,8 @@ using Printf
 using StatsBase
 using Distributions
 using DelimitedFiles
+using YAML
+using Plots
 # Get the types needed (MatTypes.jl in modules folder)
 include(abspath(typePath,"MatTypes.jl"))
 
@@ -31,5 +33,9 @@ include(abspath(libPath,"LennardJones.jl"))
 
 # Thermodynamic simulations (Not in separate module for now.)
 include(abspath(libPath,"NS.jl"))
+
+
+# Functions for initializing models and post processing.
+include(abspath(libPath,"models.jl"))
 
 end # module MatSim

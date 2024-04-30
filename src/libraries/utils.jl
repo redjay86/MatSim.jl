@@ -23,15 +23,23 @@ element_volume =Dict("H"=>37.2958,"He"=>32.1789,"Li"=>21.2543,"Be"=>8.49323,"B"=
                  "Pd"=>30.3218,"Bi"=>31.2849,"U"=>13.6389, "O"=>13.6389)#"U"=>50.84, "O"=>15.86}
 
 
-Crystal(folder::String,file::String, species::Vector{String}; overwriteLatPar = false,energyFP = 0, energyPred = 0) = fromPOSCAR(folder,file,species,overwriteLatPar = overwriteLatPar, energyFP = 0, energyPred = 0)
-Crystal(list::Vector{String}, species::Vector{String}; overwriteLatPar = false, energyFP = 0, energyPred = 0) = fromPOSCAR(list, species,overwriteLatPar = overwriteLatPar,energyFP = energyFP, energyPred = energyPred)
-Crystal(enum::Enum,species::Vector{String}) = fromEnum(enum,species,energyFP = 0,energyPred = 0,ljvals = zeros(3,2))
+Crystal(folder::String,file::String, species::Vector{String}; overwriteLatPar = false,energyFP = 0, modelEnergy = 0) = fromPOSCAR(folder,file,species,overwriteLatPar = overwriteLatPar, energyFP = 0, modelEnergy = 0)
+Crystal(list::Vector{String}, species::Vector{String}; overwriteLatPar = false, energyFP = 0, modelEnergy = 0) = fromPOSCAR(list, species,overwriteLatPar = overwriteLatPar,energyFP = energyFP, modelEnergy = modelEnergy)
+Crystal(enum::Enum,enumStruct::EnumStruct,species::Vector{String}) = fromEnum(enum,enumStruct,species,energyFP = 0,modelEnergy = 0,ljvals = zeros(3,2))
 
-function fromEnum(enum::Enum,species:: Vector{String};energyFP = 0, energyPred = 0,ljvals = zeros(3,2))
-    sLV = enum.pLV * enum.HNF  # Get super lattice vectors!
-    a,b,c,d,e,f = enum.HNF[1,1],enum.HNF[2,1],enum.HNF[2,2],enum.HNF[3,1],enum.HNF[3,2],enum.HNF[3,3]
+function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};energyFP = 0, modelEnergy = 0)
+
+    cardinalDirections = Float64[0 0 0
+                          1 0 0
+                          -1 0 0
+                          0 1 0
+                          0 -1 0
+                          0 0 1
+                          0 0 -1]
+    sLV = enum.pLV * enumStruct.HNF  # Get super lattice vectors!
+    a,b,c,d,e,f = enumStruct.HNF[1,1],enumStruct.HNF[2,1],enumStruct.HNF[2,2],enumStruct.HNF[3,1],enumStruct.HNF[3,2],enumStruct.HNF[3,3]
     # Get atomic basis..
-    nAtoms = length(enum.labeling)
+    nAtoms = length(enumStruct.labeling)
     aBas = [zeros(3) for i =1:nAtoms]
     gIndex = zeros(Int64,nAtoms)
     iC = 0
@@ -43,24 +51,24 @@ function fromEnum(enum::Enum,species:: Vector{String};energyFP = 0, energyPred =
 
             aBas[iC] .= temp2
 
-            gReal = enum.L * [z1,z2,z3]
+            gReal = enumStruct.L * [z1,z2,z3]
 
-            g = Int.(enum.L * [z1,z2,z3])
+            g = Int.(enumStruct.L * [z1,z2,z3])
             if !(g ≈ gReal)
                 error("Mapping didn't work")
             end
 
             # Bring g-vector back into the first cell
-            g = g .% diag(enum.SNF)
+            g = g .% diag(enumStruct.SNF)
             # Which character in the labeling string corresponds to this atom..
-            gIndex[iC] = Int((iD - 1) * enum.SNF[1,1] * enum.SNF[2,2] * enum.SNF[3,3]
-                         + g[1] * enum.SNF[2,2] * enum.SNF[3,3]
-                         + g[2] * enum.SNF[3,3]
+            gIndex[iC] = Int((iD - 1) * enumStruct.SNF[1,1] * enumStruct.SNF[2,2] * enumStruct.SNF[3,3]
+                         + g[1] * enumStruct.SNF[2,2] * enumStruct.SNF[3,3]
+                         + g[2] * enumStruct.SNF[3,3]
                          + g[3]) + 1
             
         end
     end
-    aType = [parse(Int,enum.labeling[i]) for i in gIndex]  # Get the atomic labels in the right order (i.e. using gIndex)
+    aType = [parse(Int,enumStruct.labeling[i]) for i in gIndex]  # Get the atomic labels in the right order (i.e. using gIndex)
     nType = [count(==(i),aType) for i in Set(aType)]
 
     if !all(isapprox.(sort(gIndex), gIndex,atol = 1e-7))
@@ -74,9 +82,22 @@ function fromEnum(enum::Enum,species:: Vector{String};energyFP = 0, energyPred =
     aBas = getPartitions(aBas[idx],nType) #Sort the atomic basis to match and then partition them by atom type.
     aType = sort(aType)
 
+    # The next two lines are to add the displacements in using the arrows string from struct_enum.out. It's not tested
+    # yet and I need to verify with Gus that I'm doing it right.  Just delete the next three lines to undo it if you find that
+    # it's not right.
+    arrows = [parse(Integer,enumStruct.arrows[i]+1) for i in gIndex]  #Get the list of arrows (as integers) in the right order.
+    displacements = getPartitions([cardinalDirections[i,:] for i in arrows],nType) # Partition to the same shape as the basis list so we can easily add them.
+    aBas .+= 0.1 * displacements
+    println("check here")
+    display(displacements)
+    display(aType)
+    display(aBas)
     cellVolume = abs(cross(sLV[:,1],sLV[:,2])' * sLV[:,3])
     latpar = vegardsVolume(species,nType,cellVolume)
-    final = Crystal(enum.title * " str #: " * string(enum.strN),latpar,minkowski_reduce(sLV,1e-7),nType,aType,nAtoms,["C"],aBas,["Unk" for i in nType],0,0,enum.k,zeros(Float64,3,2))
+    
+    nInteractions = Int(enum.k * (enum.k + 1)/2)
+
+    final = Crystal(enum.title * " str #: " * string(enumStruct.strN),latpar,minkowski_reduce(sLV,1e-7),nType,aType,nAtoms,["C"],aBas,["Unk" for i in nType],0,0,enum.k,zeros(Float64,nInteractions,2))
     CartesianToDirect!(final)
     return final
 end
@@ -90,7 +111,9 @@ function getPartitions(atoms::Vector{Vector{Float64}},nAtoms::Vector{Int64})
     return [atoms[parts[i]+1:parts[i+1]] for i=1:length(parts)-1]
 end
 
-function buildRandom(lPar:: Float64, lVecs::Matrix{Float64},nAtoms::Vector{Int64},cutoff::Float64)
+
+
+function buildRandom(lPar:: Float64, lVecs::Matrix{Float64},nAtoms::Vector{Int64},cutoff::Float64,species::Vector{String})
 
     totalAtoms = sum(nAtoms)
     order = length(nAtoms)
@@ -124,11 +147,11 @@ function buildRandom(lPar:: Float64, lVecs::Matrix{Float64},nAtoms::Vector{Int64
         end
     end
     atomicBasis = getPartitions(atoms,nAtoms)
-    return Crystal("Random Locations",lPar,lVecs,nAtoms,aType,totalAtoms,["C"], atomicBasis,0.0,0.0,order,zeros(3,2))
+    return Crystal("Random Locations",lPar,lVecs,nAtoms,aType,totalAtoms,["C"], atomicBasis,species,0.0,0.0,order,zeros(3,2))
 end
 
 
-function fromPOSCAR(folder::String,file::String,species::Vector{String};overwriteLatPar = false, energyFP = 0, energyPred = 0)
+function fromPOSCAR(folder::String,file::String,species::Vector{String};overwriteLatPar = false, energyFP = 0, modelEnergy = 0)
 
     cd(folder)
     
@@ -159,6 +182,7 @@ function fromPOSCAR(folder::String,file::String,species::Vector{String};overwrit
     nAtoms = sum(nBasis)
 
 
+    nInteractions = Int(order * (order + 1)/2)
     # I'm not sure why I'm putting this code here. We'll always want to use
     # the lattice parameter found in the structures.in file because that
     # was the geometry used in the VASP calculation. 
@@ -172,16 +196,16 @@ function fromPOSCAR(folder::String,file::String,species::Vector{String};overwrit
     
     
 
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,energyPred,order,zeros(3,2))  # Create new crystal object.
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(nInteractions,2))  # Create new crystal object.
 
 end
 
 
 
 
-function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPar = false, energyFP = NaN,energyPred = NaN)
+function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPar = false, energyFP = 0.0,modelEnergy = 0.0)
     title = lines[1]
-    lVecs = SMatrix{3,3}(reduce(hcat,[parse.(Float64, y) for y in [split(x) for x in lines[3:5]]])) # Read in the lattice vectors.
+    lVecs = reduce(hcat,[parse.(Float64, y) for y in [split(x) for x in lines[3:5]]])#SMatrix{3,3}() # Read in the lattice vectors.
     if !isletter(lstrip(lines[6])[1])
         counter = 6
     else
@@ -202,6 +226,7 @@ function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPa
     order = length(nBasis)
     nAtoms = sum(nBasis)
 
+    nInteractions = Int(order * (order + 1)/2)
     # I'm not sure why I'm putting this code here. We'll always want to use
     # the lattice parameter found in the structures.in file because that
     # was the geometry used in the VASP calculation. 
@@ -212,7 +237,7 @@ function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPa
     else
         println("Keeping lattice parameter in file")
     end
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,energyPred,order,zeros(3,2))  # Create new crystal object.
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(nInteractions,2))  # Create new crystal object.
 
 end
 
@@ -454,6 +479,8 @@ function vegardsVolume(elements,atom_counts,volume)
     nAtoms = sum(atom_counts)
     nTypes = length(atom_counts)
     concentrations = [x/nAtoms for x in atom_counts]
+    println(nTypes)
+    println(elements)
     if length(elements) != nTypes
         error("Not enough elements specified")
     end

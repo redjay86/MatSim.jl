@@ -87,6 +87,55 @@ function getEnergy(filePath::String)
 
 end
 
+function writePOTCAR(path::String,potcar::Dict)
+
+#    settings = YAML.load_file("VASP.yml")
+    potcarsroot = potcar["path"]
+    potcarspecies = reverse(sort(potcar["species"]))
+    n = length(potcarspecies)
+    dirs = [potcarsroot * "/" * x for x in potcarspecies]
+        
+    catCommand = `cat $dirs`
+    outpath = joinpath(path,"POTCAR")
+    run(pipeline(catCommand, stdout = outpath))
+
+end
+
+
+function writeINCAR(writepath::String,incar::Dict)
+
+    open(joinpath(writepath,"INCAR"), "w") do f
+        for (i,d) in incar
+            write(f,i * "=" * string(d) * "\n")
+        end
+    end
+end
+
+function writeKPOINTS(writepath::String,kpoints::Dict)
+
+    # generate the input file.
+
+    open(joinpath(writepath,"KPGEN"),"w") do f
+        for (key,val) in kpoints["settings"][1]
+            write(f,key * "=" * string(val)*"\n")
+        end
+        write(f,"")
+    end
+#    potcarsroot = potcar["path"]
+#    potcarspecies = reverse(sort(potcar["species"]))
+#    n = length(potcarspecies)
+#    dirs = [potcarsroot * "/" * x for x in potcarspecies]
+#        
+    currentDir = pwd()
+    cd(writepath)
+    kpCommand = `kpoints.x`
+    run(kpCommand)
+    #wait()
+    cd(currentDir)
+#    outpath = joinpath(path,"POTCAR")
+#    run(pipeline(catCommand, stdout = outpath))
+
+end
 
 #end
 

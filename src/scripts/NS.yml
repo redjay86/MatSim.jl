@@ -1,0 +1,14 @@
+
+params:
+  lPar: 20.0
+  lVecs: [[1.0 0.0 0.0],
+         [0.0 1.0 3.0],
+         [0.0 0.0 2.0]] 
+  nAtoms: [50, 20]
+  minSep: 3.0
+  K: 512 # Number of walkers in the pool.
+  Kr: 1  # Number of walkers to remove at each iteration.
+  L: 100 # Length of random walk.
+  eps: 1e-6 # Algorithm stopping criteria
+  walkMethod: rWalk # GMC, TEHMC
+

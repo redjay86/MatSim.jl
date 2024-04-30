@@ -15,7 +15,7 @@ mutable struct Crystal
     atomicBasis:: Vector{Vector{Vector{Float64}}}  # List of all the atomic basis vector separated by type 
     species:: Vector{String}  # Species of the atoms 
     energyFP:: Float64  # First principles energy
-    energyPred:: Float64 # Model energy
+    modelEnergy:: Float64 # Model energy
     order::Int64 # binary, ternary, etc.
     ljvals:: Matrix{Float64}
 end
@@ -23,21 +23,24 @@ end
 
 struct DataSet
     crystals::Vector{Crystal}
+    stdEnergy:: Float64
+    meanEnergy::Float64
+#    nData::Int
 end
 
 
-struct NS
-    L :: Float64  # Size of simulations cell (cube)
-    K :: Int64  # Number of configurations in simulation
-    W :: Int64  # Length of random walk.
-    V_ϵ :: Float64 # Convergence threshold
-    N :: Vector{Int64}  # Number of atoms per configuration
-    configs :: Vector{Crystal}  # Keeps track of all of the configurations in the simulation
-#    E :: Vector{Float64}  # Energy of each configuration    
-end
+#struct NS
+#    L :: Float64  # Size of simulations cell (cube)
+#    K :: Int64  # Number of configurations in simulation
+#    W :: Int64  # Length of random walk.
+#    V_ϵ :: Float64 # Convergence threshold
+#    N :: Vector{Int64}  # Number of atoms per configuration
+#    configs :: Vector{Crystal}  # Keeps track of all of the configurations in the simulation
+##    E :: Vector{Float64}  # Energy of each configuration    
+#end
 
-struct LJMetrop
-    data::DataSet
+
+struct metrop
     nDraws:: Int
     nBurnIn:: Int
     μ_draws:: Array{Float64,3}
@@ -60,6 +63,22 @@ struct Enum
     dVecs:: Vector{Vector{Float64}}
     k :: Int64
     eps:: Float64
+#    strN:: Int64
+#    hnfN::Int64
+#    hnf_degen:: Int64  
+#    lab_degen:: Int64
+#    tot_degen:: Int64
+#    sizeN:: Int64
+#    n:: Int64
+#    pgOps:: Int64
+#    SNF:: Diagonal{Int64,Vector{Int64}}
+#    HNF:: LowerTriangular{Int64, Matrix{Int64}}
+#    L:: Matrix{Int64}
+#    labeling::String
+
+end
+
+struct EnumStruct
     strN:: Int64
     hnfN::Int64
     hnf_degen:: Int64  
@@ -72,9 +91,9 @@ struct Enum
     HNF:: LowerTriangular{Int64, Matrix{Int64}}
     L:: Matrix{Int64}
     labeling::String
+    arrows::String
 
 end
-
 
 struct MD
     nParticles::Int64
@@ -84,9 +103,27 @@ struct MD
 end
 
 
-struct energyModel
-    energy:: Function
+struct LJ
+    order:: Int
     params:: Array{Float64,2}
+    cutoff:: Float64
+end
+
+struct NS
+    K:: Int
+    Kr:: Int
+    L:: Int
+    eps:: Float64
+    method:: String
+    configs::Vector{Crystal}
+end
+
+struct model
+    energyModel:: LJ
+    fitting:: metrop
+    trainingData::DataSet
+    holdoutData::DataSet
+
 end
 
 #end

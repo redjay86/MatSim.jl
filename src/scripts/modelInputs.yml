@@ -1,0 +1,66 @@
+
+dataset:
+  title: Cu-Pt
+  file: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/structures.CuPt"
+  species: [Cu, Pt]
+  nTraining: 200
+  standardize: true
+  offset: 3.0
+
+model:
+  type: LJ
+  cutoff: 5.0
+  order: 2
+
+metrop:
+  nDraws: 10000
+  nBurnin: 1000
+  proposal: Gamma
+  Priors:
+    aa:
+      sigma: 
+        distribution: Gamma
+        parameters: 3 2
+      epsilon:
+        distribution: Gamma
+        parameters: 70 30
+    ab:
+      sigma: 
+        distribution: Gamma
+        parameters: 3 2
+      epsilon: 
+        distribution: Gamma
+        parameters: 70 30
+    bb:
+      sigma: 
+        distribution: Gamma
+        parameters: 3 2
+      epsilon: 
+        distribution: Gamma
+        parameters: 70 30
+    sigma: 
+      distribution: Gamma
+      parameters: 3 2
+  candidateSigmas:
+    aa: 
+      sigma: 0.1
+      epsilon: 0.04
+    ab:
+      sigma: 0.08
+      epsilon: 0.04
+    bb:
+      sigma: 0.1
+      epsilon: 0.04
+    sigma: 0.01
+  starting:
+    aa:
+      sigma: 0.5
+      epsilon: 1.2
+    ab:
+      sigma: 1.8
+      epsilon: 1.5
+    bb:
+      sigma: 1.3
+      epsilon: 1.4
+    sigma: 2.5
+
