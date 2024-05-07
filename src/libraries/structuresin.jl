@@ -1,5 +1,5 @@
 
-function getTraining_Holdout_Sets(dset::DataSet,nStructures;standardize = true,offset = 0.0)
+function getTraining_Holdout_Sets(dset::DataSet,nStructures)
 
     training = sample(1:length(dset.crystals),nStructures,replace = false)
     holdout = setdiff(1:length(dset.crystals),training)
@@ -12,13 +12,13 @@ function getTraining_Holdout_Sets(dset::DataSet,nStructures;standardize = true,o
 
 
 
-    trainingSet = DataSet(dset.crystals[training],stdTraining,meanTraining)
-    holdoutSet = DataSet(dset.crystals[holdout],stdHoldout,meanHoldout)
+    trainingSet = DataSet(dset.crystals[training],stdTraining,meanTraining,dset.offset,length(dset.crystals[training]))
+    holdoutSet = DataSet(dset.crystals[holdout],stdHoldout,meanHoldout,dset.offset,length(dset.crystals[holdout]))
 
-    if standardize
-        standardizeData!(trainingSet,offset)
-        standardizeData!(holdoutSet,offset)
-    end
+#    if standardize
+#        standardizeData!(trainingSet,offset)
+#        standardizeData!(holdoutSet,offset)
+#    end
     return trainingSet, holdoutSet
 end
 
@@ -42,7 +42,7 @@ function readStructuresIn(folder::String,file::String,species::Vector{String};ov
     end
     meanEnergy = mean([i.energyFP for i in data])
     stdEnergy = std([i.energyFP for i in data])    
-    return DataSet(data,stdEnergy,meanEnergy)
+    return DataSet(data,stdEnergy,meanEnergy,0,length(data))
 end
 
 function standardizeData!(dataSet::DataSet,offset::Float64)

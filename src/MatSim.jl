@@ -26,7 +26,7 @@ include(abspath(libPath,"structuresin.jl"))  # Reading and writing dataset summa
 include(abspath(libPath,"vaspUtils.jl"))
 
 # Metrop Hastings Algorithms (MatML.jl in modules folder)
-include(abspath(libPath,"metrop.jl"))
+#include(abspath(libPath,"metrop.jl"))
 
 # Lennard Jones model (Bundled together with MatML.jl in modules folder)
 include(abspath(libPath,"LennardJones.jl"))

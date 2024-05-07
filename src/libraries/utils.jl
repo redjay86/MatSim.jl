@@ -191,12 +191,12 @@ function fromPOSCAR(folder::String,file::String,species::Vector{String};overwrit
         println("Overwriting lat par in file with Vegard's law")
         latpar = vegardsVolume(species,nBasis,cellVolume)
     else
-        println("Keeping lattice parameter in file")
+#        println("Keeping lattice parameter in file")
     end
     
     
 
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(nInteractions,2))  # Create new crystal object.
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(order,order,2))  # Create new crystal object.
 
 end
 
@@ -235,9 +235,9 @@ function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPa
         println("Overwriting lat par in file with Vegard's law")
         latpar = vegardsVolume(species,nBasis,cellVolume)
     else
-        println("Keeping lattice parameter in file")
+#        println("Keeping lattice parameter in file")
     end
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(nInteractions,2))  # Create new crystal object.
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(order,order,2))  # Create new crystal object.
 
 end
 
@@ -249,7 +249,7 @@ function DirectToCartesian!(crystal::Crystal)
         crystal.atomicBasis .= [[crystal.lVecs * i for i in j] for j in crystal.atomicBasis ]
         crystal.coordSys[1] = "C"
     else
-        println("Already in Cartesian coordinates")
+#        println("Already in Cartesian coordinates")
     end
 end
 
@@ -260,7 +260,7 @@ function CartesianToDirect!(crystal::Crystal)
 
         crystal.coordSys[1] = "D"
     else
-        println("Already in Cartesian coordinates")
+#        println("Already in Cartesian coordinates")
     end
 end
 

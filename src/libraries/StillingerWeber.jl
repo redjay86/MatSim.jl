@@ -38,7 +38,7 @@ end
 
 
 function SW_pair(r,params)
-    return params["ϵ"] * params["A"] * (params["B"] * (params["σ"]/r)^4 - 1) * exp(1/(r/params["σ"] - params["a"]))
+    return params["ϵ"] (params["B"] * (params["σ"]/r)^4 - 1) * exp(1/(r/params["σ"] - params["a"]))
 end
 
 function SW_threeBody(r12,r13,cosθ,params)
