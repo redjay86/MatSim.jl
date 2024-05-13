@@ -118,6 +118,8 @@ struct LJ_metrop
     σ_accept:: Vector{Float64}
     proposal:: Function
     logpost:: Function
+    μ_Priors:: Array{Distribution,3}
+    σ_Prior:: Distribution
 end
 
 # The Stillinger-Weber potential

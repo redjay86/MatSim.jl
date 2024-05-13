@@ -14,6 +14,7 @@ using Distributions
 using DelimitedFiles
 using YAML
 using Plots
+using Combinatorics
 # Get the types needed (MatTypes.jl in modules folder)
 include(abspath(typePath,"MatTypes.jl"))
 

@@ -103,14 +103,8 @@ function totalDistances(crystal::Crystal,LJ::LJ)
 end
 
 function totalEnergy(crystal::Crystal,LJ::LJ)
-    #println("HERE")
     if !all(crystal.ljvals .== 0.0)
-       # println("here")
-       # display(LJ.params)
-       # display(crystal.ljvals)
-#        display(-4 * LJ.params[:,:,1].* LJ.params[:,:,2] .^6)
         totalEnergy = sum(-LJ.params[:,:,1] .* LJ.params[:,:,2] .^6 .* crystal.ljvals[:,:,1] + LJ.params[:,:,1] .* LJ.params[:,:,2] .^12 .* crystal.ljvals[:,:,2] ) 
-       # println(totalEnergy)
         return totalEnergy
     end
     println("Doing it the hard way!")
@@ -128,8 +122,7 @@ end
 
 
 function logNormal(data::DataSet,LJ::LJ,σ::Float64)
-    #n = length(data.crystals)
-    thesum =  - 1/(2 * σ^2) * sum([(i.energyFP - totalEnergy(i,LJ))^2   for i in data.crystals])
+    thesum =  -data.nData/2 *log(σ^2) - 1/(2 * σ^2) * sum([(i.energyFP - totalEnergy(i,LJ))^2   for i in data.crystals])
     return thesum
 
 end
@@ -154,7 +147,9 @@ function initializeLJ(path::String)
     dataFolder = dirname(input["dataset"]["file"])
     dataFile = basename(input["dataset"]["file"])
     dset = MatSim.readStructuresIn(dataFolder,dataFile,species,overwriteLatPar = false)
-    #MatSim.standardizeData!(dset,input["dataset"]["offset"])
+    if input["dataset"]["standardize"]
+        MatSim.standardizeData!(dset,input["dataset"]["offset"])
+    end
     # Check to make sure that the specified order matches the dataset
     order = input["model"]["order"]
     if dset.crystals[1].order != order
@@ -221,12 +216,12 @@ function initializeMetrop(metrop::Dict,LJ::LJ)
 
     # Build the array of priors
     priors = metrop["Priors"]
-    paramsPrior = Array{Distribution, 3}(undef, order,order, 2)
+    paramsPriors = Array{Distribution, 3}(undef, order,order, 2)
     for i in keys(priors)
         println(i)
         if lowercase(i) != "sigma"
-            paramsPrior[indexDict[i]...,1]= distDict[lowercase(priors[i]["epsilon"]["distribution"])](parse.(Float64,split(priors[i]["epsilon"]["parameters"]))...)
-            paramsPrior[indexDict[i]...,2]= distDict[lowercase(priors[i]["sigma"]["distribution"])](parse.(Float64,split(priors[i]["sigma"]["parameters"]))...)
+            paramsPriors[indexDict[i]...,1]= distDict[lowercase(priors[i]["epsilon"]["distribution"])](parse.(Float64,split(priors[i]["epsilon"]["parameters"]))...)
+            paramsPriors[indexDict[i]...,2]= distDict[lowercase(priors[i]["sigma"]["distribution"])](parse.(Float64,split(priors[i]["sigma"]["parameters"]))...)
         end
     end
     # The parameters are stored in an order x order x 2 array with only the upper triangle of it actually used. The upper right 
@@ -236,11 +231,11 @@ function initializeMetrop(metrop::Dict,LJ::LJ)
     # specific to a binary case only.  Needs generalized to any order.
 
     extras = [a for a in CartesianIndices(LJ.params) if a[2] < a[1]]
-    paramsPrior[extras] .= Uniform(-5,5)
+    paramsPriors[extras] .= Uniform(-5,5)
     σprior = distDict[lowercase(priors["sigma"]["distribution"])](parse.(Float64,split(priors["sigma"]["parameters"]))...)
 
     # Construct the posterior
-    logPost(data,model,σ) = MatSim.logNormal(data,model,σ) + sum(logpdf.(paramsPrior,model.params)) + logpdf(σprior,σ)  
+    logPost(data,model,σ) = MatSim.logNormal(data,model,σ) + sum(logpdf.(paramsPriors,model.params)) + logpdf(σprior,σ)  
     
     # Define the proposal distribution
     if lowercase(metrop["proposal"]) == "gamma"
@@ -258,7 +253,7 @@ function initializeMetrop(metrop::Dict,LJ::LJ)
     params_accept = zeros(order,order,2)
     σ_accept = Float64[0]
 
-    LJ_metrop(nTotal,nBurnIn,params_draws,σ_draws,candSig,candSig_sig,params_Guess,σGuess,params_accept,σ_accept, proposal,logPost)
+    LJ_metrop(nTotal,nBurnIn,params_draws,σ_draws,candSig,candSig_sig,params_Guess,σGuess,params_accept,σ_accept, proposal,logPost,paramsPriors,σprior)
 end
 
 
@@ -273,13 +268,22 @@ function displayResults(results::LJ_metrop,LJ::LJ,trainingSet::DataSet,holdoutSe
     keeps = [a for a in CartesianIndices(LJ.params) if a[2] >= a[1]]
     keeps = sort(sort(keeps,by = x->x[1]),by = x->x[2])
 
+    x = 0:0.01:3
     hists = [histogram(results.params_draws[results.nBurnIn:end,a],bins = 100,normalize = :pdf,annotations = ((0.5,0.5),@sprintf("Acceptance Rate: %5.1f %%",results.params_accept[a]*100))) for a in keeps]
+    σ_hist = histogram(results.σ_draws,bins = 100,normalize = :pdf,annotations = ((0.5,0.5),@sprintf("Acceptance Rate: %5.1f %%",results.σ_accept[1]*100)))
+    plot!(x,pdf(results.σ_Prior,x),lw =6,lc = :red)
     
-    trace = [plot(results.params_draws[results.nBurnIn:end,a],seriestype= :scatter)  for a in keeps]
+    combs = [[[i,j,k] for k = 1:2] for i = 1:LJ.order for j = i:LJ.order ]
+
+    hist2ds = [histogram2d(results.params_draws[results.nBurnIn:end,x[1]...],results.params_draws[results.nBurnIn:end,x[2]...]) for x in combs  ]
+    r = @layout [ a; b; c]
+    hist2dplots = plot(hist2ds...,layout = r,aspect_ratio = 1)
     l = @layout [grid(nInteractionTypes,2)]
     resplot = plot(hists...,layout = l,size = (2250,1250),legend=false)
-    tracePlots = plot(trace...,layout = l,size = (2000,1000),legend=false) 
-
+    plot!(x,[pdf(results.μ_Priors[a],x) for a in keeps],lw=6,lc = :red)
+    g = @layout [grid(nInteractionTypes,2)]
+    tracePlots = plot([results.params_draws[results.nBurnIn:end,a] for a in keeps],layout = g, size = (2000,1000),legend = false)
+    #tracePlots = plot(trace...,layout = l,size = (2000,1000),legend=false) 
     
     # Predict on the holdout set to evaluate quality of model.
 #    stdEnergy = trainingSet.stdEnergy
@@ -295,10 +299,8 @@ function displayResults(results::LJ_metrop,LJ::LJ,trainingSet::DataSet,holdoutSe
         overDraws = zeros(Float64,results.nDraws - results.nBurnIn)
         for i = 1:results.nDraws - results.nBurnIn
             LJ.params .= results.params_draws[i+results.nBurnIn,:,:,:]
-            #display(LJ.params)
-#            display(holdoutSet.crystals[j].ljvals)
 #            overDraws[i] = MatSim.totalEnergy(holdoutSet.crystals[j],LJ)
-            overDraws[i] = (MatSim.totalEnergy(holdoutSet.crystals[j],LJ) + offset) *stdEnergy + meanEnergy
+            overDraws[i] = (MatSim.totalEnergy(holdoutSet.crystals[j],LJ) + offset) * stdEnergy + meanEnergy
         end
         predictVals[j] = mean(overDraws)
         predictUnc[j] = std(overDraws)
@@ -315,7 +317,7 @@ function displayResults(results::LJ_metrop,LJ::LJ,trainingSet::DataSet,holdoutSe
  #   using Printf
     tag = @sprintf("RMS Error: %5.2f",rmsError)
     annotate!((0.75,0.25),tag)
-    return resplot,myp,tracePlots
+    return resplot,myp,σ_hist,tracePlots,hist2dplots
         
 end
 

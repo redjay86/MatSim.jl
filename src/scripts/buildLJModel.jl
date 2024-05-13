@@ -16,13 +16,10 @@ using MatSim
 cDir = @__DIR__
 #cDir = pwd()
 # Initialize the model
-metrop,trainingSet,holdoutSet,LJ,dset = MatSim.initializeLJ(joinpath(cDir,"modelInputs.yml"))
+metrop,trainingSet,holdoutSet,LJ,dset = MatSim.initializeLJ(joinpath(cDir,"modelInputs-2.yml"))
 
-LJ.params .= ones(2,2,2)
-display(dset.crystals[8].ljvals)
-
-check = MatSim.totalEnergy(dset.crystals[5],LJ)
 # Run Metropolis
+
 @time results = MatSim.getSamples(metrop,trainingSet,LJ)
 
 # Look at the acceptance rates.
@@ -30,10 +27,8 @@ display(results.params_accept)
 println(results.σ_accept)
 
 # Display the results
-plots = MatSim.displayResults(results,LJ,trainingSet,holdoutSet)
+plots = MatSim.displayResults(results,LJ,trainingSet,holdoutSet,dset.meanEnergy,dset.stdEnergy,holdoutSet.offset)
 
-display(plots[2])
+#gss()
+display(plots[5])
 
-
-a = Dict("aa"=> Dict("eps"=>5.43, "σ"=> 2.8),"ab"=> Dict("eps"=>2.43, "σ"=> 3.8))
-typeof(a)

@@ -52,6 +52,7 @@ function standardizeData!(dataSet::DataSet,offset::Float64)
     for i in dataSet.crystals
         i.energyFP = (i.energyFP - dataSet.meanEnergy)/dataSet.stdEnergy-offset
     end
+#    dataSet.offset = offset
     return nothing #stdEnergy, meanEnergy
 end
 
@@ -76,4 +77,11 @@ function writeStructuresIn(path::String, structures::DataSet)
     end
     close(io)
     
+end
+
+
+# Ground state search
+function gss(enumFile, model)
+
+
 end
