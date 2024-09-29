@@ -4,41 +4,68 @@ function initializeSimulation(inputs,species,model)
     lVecs = hcat(parsedlVecs...)
     configs = [buildRandom(inputs["lPar"],lVecs,inputs["nAtoms"],inputs["minSep"],species) for i in 1:inputs["K"]]
     for i in configs
-        i.energyPred = totalEnergy(i,model)
+        i.modelEnergy = MatSim.totalEnergy(i,model)
     end
     return NS(inputs["K"],inputs["Kr"],inputs["L"],inputs["eps"],inputs["walkMethod"],configs)
 end
 
-function nestedSampling(NS::NS)
+function nestedSampling(NS::NS,LJ::LJ)
 
     V = (NS.K - NS.Kr + 1)/(NS.K + 1)
 
     i = 1
     while V > NS.eps
+        println(i)
         ## Find the top Kr highest energies
+        sEnergies =  reverse(sortperm([i.modelEnergy for i in NS.configs]))
+        energyCutoff = NS.configs[sEnergies[NS.Kr]].modelEnergy
+        # Which configs need to be thrown out.
+        forDelete = sEnergies[1:NS.Kr]
+        # Which configs can be kept
+        keeps = sEnergies[NS.Kr + 1: end]
 
+        println("Energy cutoff")
+        display(energyCutoff)
+        for i in forDelete
+            #Copy one of the configs that didn't get thrown out as the starting point
+            println("Initializing random walk to replace configuration ", i)
+            display(sample(keeps))
+            NS.configs[i] = NS.configs[sample(keeps,1)[1]]
+            randomWalk!(NS.configs[i],LJ,energyCutoff,NS.L)
+        end
         i += 1
         V = ((NS.K - NS.Kr + 1)/(NS.K + 1))^i
 
     end
 
 end
+
 # Perform a random walk on a single configuration subject to the constraint that the total energy be less than the cutoff
-function randomWalk(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
+# Not walking using the force vector (GMC), just random walks.  This may not work well for some systems.
+function randomWalk!(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
     # Loop over the number of random walks to take.
-    oldEnergy = totalEnergy(config,model)
-    newEnergy = 1e6
     for iWalk in 1:nWalk
+        @printf "Step in random walk %3i\n" iWalk
         #Loop over all of the atoms in the simulation.
-        # Loop until you find a displacement that is downhill
-        while newEnergy > oldEnergy
-            randomDisplacment = [[ (rand(3).-0.5)*0.1 for i =1:config.aType[j]] for j = 1:config.order]
-            config.atomicBasis .+= randDisplacement  # Use the displacement to move this atom.
+        for (iType,atomType) in enumerate(config.atomicBasis), (iAtom,atom) in enumerate(atomType)
+#            @printf "Atom being moved. Type: %3i Number: %3i\n" iType iAtom 
+            # Get a random displacement vector
+            randDisplace = (rand(3).-0.5)*0.1
+            config.atomicBasis[iType][iAtom] .+= randDisplace
             newEnergy = totalEnergy(config,model)
-        end
-        # Once I've found a config with a lower energy, set the new energy to be the old in preparation for the next step in the random walk.
-        oldEnergy = newEnergy  
-        newEnergy = 1e6
+            # If the move resulted in a higher energy, undo the move and go to the next atom.
+            if newEnergy > energyCutoff
+ #               @printf "Rejected\n"
+                config.atomicBasis[iType][iAtom] .-= randDisplace
+            else # Otherwise, update the energy 
+#                @printf "Accepted\n"
+                config.modelEnergy = newEnergy
+            end     
+        end   
+#        randDisplacement = [[ (rand(3).-0.5)*0.1 for i =1:config.nType[j]] for j = 1:config.order]
+#        config.atomicBasis .+= randDisplacement  # Use the displacement to move this atom.
+
+       # println(totalEnergy(config,model))
     end
 end
 
