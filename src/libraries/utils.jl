@@ -25,9 +25,9 @@ element_volume =Dict("H"=>37.2958,"He"=>32.1789,"Li"=>21.2543,"Be"=>8.49323,"B"=
 
 Crystal(folder::String,file::String, species::Vector{String}; overwriteLatPar = false,energyFP = 0, modelEnergy = 0) = fromPOSCAR(folder,file,species,overwriteLatPar = overwriteLatPar, energyFP = 0, modelEnergy = 0)
 Crystal(list::Vector{String}, species::Vector{String}; overwriteLatPar = false, energyFP = 0, modelEnergy = 0) = fromPOSCAR(list, species,overwriteLatPar = overwriteLatPar,energyFP = energyFP, modelEnergy = modelEnergy)
-Crystal(enum::Enum,enumStruct::EnumStruct,species::Vector{String}) = fromEnum(enum,enumStruct,species,energyFP = 0,modelEnergy = 0,ljvals = zeros(3,2))
+Crystal(enum::Enum,enumStruct::EnumStruct,species::Vector{String};mink::Bool=true) = fromEnum(enum,enumStruct,species,energyFP = 0,modelEnergy = 0,mink=mink)
 
-function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};energyFP = 0, modelEnergy = 0)
+function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};energyFP = 0, modelEnergy = 0,mink=true)
 
     cardinalDirections = Float64[0 0 0
                           1 0 0
@@ -88,16 +88,19 @@ function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};ene
     arrows = [parse(Integer,enumStruct.arrows[i]+1) for i in gIndex]  #Get the list of arrows (as integers) in the right order.
     displacements = getPartitions([cardinalDirections[i,:] for i in arrows],nType) # Partition to the same shape as the basis list so we can easily add them.
     aBas .+= 0.1 * displacements
-    println("check here")
-    display(displacements)
-    display(aType)
-    display(aBas)
+    #println("check here")
+    #display(displacements)
+    #display(aType)
+    #display(aBas)
     cellVolume = abs(cross(sLV[:,1],sLV[:,2])' * sLV[:,3])
     latpar = vegardsVolume(species,nType,cellVolume)
     
     nInteractions = Int(enum.k * (enum.k + 1)/2)
 
-    final = Crystal(enum.title * " str #: " * string(enumStruct.strN),latpar,minkowski_reduce(sLV,1e-7),nType,aType,nAtoms,["C"],aBas,["Unk" for i in nType],0,0,enum.k,zeros(Float64,nInteractions,2))
+    r6 = UpperTriangular(zeros(enum.k,enum.k))
+    r12 = UpperTriangular(zeros(enum.k,enum.k))
+
+    final = Crystal(enum.title * " str #: " * string(enumStruct.strN),latpar,mink ? minkowski_reduce(sLV,1e-5) : sLV,nType,aType,nAtoms,["C"],aBas,["Unk" for i in nType],0,0,enum.k,r6,r12)
     CartesianToDirect!(final)
     return final
 end
@@ -147,7 +150,10 @@ function buildRandom(lPar:: Float64, lVecs::Matrix{Float64},nAtoms::Vector{Int64
         end
     end
     atomicBasis = getPartitions(atoms,nAtoms)
-    return Crystal("Random Locations",lPar,lVecs,nAtoms,aType,totalAtoms,["C"], atomicBasis,species,0.0,0.0,order,zeros(3,2))
+    k = length(species)
+    r6 = UpperTriangular(zeros(k,k))
+    r12 = UpperTriangular(zeros(k,k))
+    return Crystal("Random Locations",lPar,lVecs,nAtoms,aType,totalAtoms,["C"], atomicBasis,species,0.0,0.0,order,r6,r12)
 end
 
 
@@ -169,7 +175,6 @@ function fromPOSCAR(folder::String,file::String,species::Vector{String};overwrit
     coordSys = [pos[counter + 1]]
     latpar = parse(Float64,pos[2])
     aType = hcat([ [n for i=1:nBasis[n]]' for n=1:length(nBasis)]...)'
-    println(pos[8:7 + sum(nBasis)])
     allBasis = [SVector{3,Float64}(parse.(Float64,split(x)[1:3])) for x in pos[(counter + 2):(counter + 1 +sum(nBasis))]] # Read all of the basis vectors
     allTypes = try
         [split(x)[end] for x in pos[(counter + 2):end]]
@@ -194,9 +199,9 @@ function fromPOSCAR(folder::String,file::String,species::Vector{String};overwrit
 #        println("Keeping lattice parameter in file")
     end
     
-    
-
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(order,order,2))  # Create new crystal object.
+    r6 = UpperTriangular(zeros(order,order))
+    r12 = UpperTriangular(zeros(order,order))
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,r6,r12)  # Create new crystal object.
 
 end
 
@@ -237,16 +242,37 @@ function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPa
     else
 #        println("Keeping lattice parameter in file")
     end
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,zeros(order,order,2))  # Create new crystal object.
+    r6 = UpperTriangular(zeros(order,order))
+    r12 = UpperTriangular(zeros(order,order))
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,r6,r12)  # Create new crystal object.
 
 end
 
-
-
+#function mapIntoCell(crystal::Crystal,atom::Vector{Int64})
+#    # Convert to Direct.
+#    # Map back into cell.
+#    # Go back to cartesian.
+#    # Python code... Needs translated to Julia
+#    new_point = []
+#    for i in vec:
+#        if i < 0.0 or i > 1.0:
+#         #   print(i,' i')
+#         #   print(floor(i),' floor')
+#         #   print(i - floor(i),' result')
+#            new_point.append(i - floor(i))
+#        elif i == 1.0:
+#            new_point.append(0.0)
+#        else:
+#            new_point.append(i)
+#    return array(new_point)
+#end
+#
 function DirectToCartesian!(crystal::Crystal)
     if crystal.coordSys[1] == "D"
-        println("Converting to cartesian")
+        #println("Converting to cartesian")
         crystal.atomicBasis .= [[crystal.lVecs * i for i in j] for j in crystal.atomicBasis ]
+        #println(typeof(crystal.atomicBasis[1][1]))
+
         crystal.coordSys[1] = "C"
     else
 #        println("Already in Cartesian coordinates")
@@ -255,20 +281,20 @@ end
 
 function CartesianToDirect!(crystal::Crystal)
     if crystal.coordSys[1] == "C"
-        println("Converting to direct")
+        #println("Converting to direct")
         crystal.atomicBasis .= [[ round.( ( inv(crystal.lVecs) * i) .% 1,sigdigits = 8) for i in j]  for j in crystal.atomicBasis ]
-
+        #println(typeof(crystal.atomicBasis[1][1]))
         crystal.coordSys[1] = "D"
     else
 #        println("Already in Cartesian coordinates")
     end
 end
 
-function DirectToCartesian(lVecs::Matrix{Float64},atom:: Vector{Float64})
+function DirectToCartesian(lVecs::SMatrix{3,3,Float64},atom:: SVector{3,Float64})
     return lVecs * atom
 end
 
-function CartesianToDirect(lVecs::Matrix{Float64},atom:: Vector{Float64})
+function CartesianToDirect(lVecs::SMatrix{3,3,Float64},atom:: SVector{3,Float64})
     return inv(lVecs) * atom  .% 1
 end
 
@@ -440,6 +466,8 @@ function minkowski_check(ABC,eps)
 
     if norm(b3) > norm(b3-b2) + eps
         minkowski_check = false
+        println(b3)
+        println(b2)
         println("Minkowski_condition 8 failed: b3 > b3-b2")
     end
 
@@ -479,8 +507,8 @@ function vegardsVolume(elements,atom_counts,volume)
     nAtoms = sum(atom_counts)
     nTypes = length(atom_counts)
     concentrations = [x/nAtoms for x in atom_counts]
-    println(nTypes)
-    println(elements)
+    #println(nTypes)
+    #println(elements)
     if length(elements) != nTypes
         error("Not enough elements specified")
     end

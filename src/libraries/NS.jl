@@ -16,9 +16,10 @@ function nestedSampling(NS::NS,LJ::LJ)
     i = 1
     while V > NS.eps
         println(i)
+        println("V = ", V)
         ## Find the top Kr highest energies
         sEnergies =  reverse(sortperm([i.modelEnergy for i in NS.configs]))
-        energyCutoff = NS.configs[sEnergies[NS.Kr]].modelEnergy
+        energyCutoff = NS.configs[sEnergies[NS.Kr]].modelEnergy  # Find the 
         # Which configs need to be thrown out.
         forDelete = sEnergies[1:NS.Kr]
         # Which configs can be kept
@@ -28,8 +29,8 @@ function nestedSampling(NS::NS,LJ::LJ)
         display(energyCutoff)
         for i in forDelete
             #Copy one of the configs that didn't get thrown out as the starting point
-            println("Initializing random walk to replace configuration ", i)
-            display(sample(keeps))
+            #println("Initializing random walk to replace configuration ", i)
+            #display(sample(keeps))
             NS.configs[i] = NS.configs[sample(keeps,1)[1]]
             randomWalk!(NS.configs[i],LJ,energyCutoff,NS.L)
         end
@@ -45,20 +46,20 @@ end
 function randomWalk!(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
     # Loop over the number of random walks to take.
     for iWalk in 1:nWalk
-        @printf "Step in random walk %3i\n" iWalk
+        #@printf "Step in random walk %3i\n" iWalk
         #Loop over all of the atoms in the simulation.
         for (iType,atomType) in enumerate(config.atomicBasis), (iAtom,atom) in enumerate(atomType)
-#            @printf "Atom being moved. Type: %3i Number: %3i\n" iType iAtom 
+            #@printf "Atom being moved. Type: %3i Number: %3i\n" iType iAtom 
             # Get a random displacement vector
             randDisplace = (rand(3).-0.5)*0.1
-            config.atomicBasis[iType][iAtom] .+= randDisplace
+            config.atomicBasis[iType][iAtom] += randDisplace
             newEnergy = totalEnergy(config,model)
             # If the move resulted in a higher energy, undo the move and go to the next atom.
             if newEnergy > energyCutoff
- #               @printf "Rejected\n"
-                config.atomicBasis[iType][iAtom] .-= randDisplace
+                #@printf "Rejected------------------------------------\n"
+                config.atomicBasis[iType][iAtom] -= randDisplace
             else # Otherwise, update the energy 
-#                @printf "Accepted\n"
+              #  @printf "Accepted\n"
                 config.modelEnergy = newEnergy
             end     
         end   

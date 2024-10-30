@@ -26,6 +26,55 @@ function read_Enum_header(file)
 
 end
 
+
+function gss(file,model,meanEnergy, stdEnergy,offset;readend = 100)
+    enum=MatSim.read_Enum_header(file)
+    cDir = pwd()
+
+    io = open(joinpath(cDir,"gss.out"),"w")
+    for (idx,line) in enumerate(eachline(file))
+        println(idx-15)
+        if idx - 15 > readend
+            break
+        end
+        if idx < 16 
+            continue
+        end
+
+
+
+        hnfN = parse(Int,split(line)[2])
+        hnf_degen = parse(Int,split(line)[3])
+        label_degen = parse(Int,split(line)[4])
+        total_degen = parse(Int,split(line)[5])
+        sizeN = parse(Int,split(line)[6])
+        n = parse(Int,split(line)[7])
+        pgOps = parse(Int,split(line)[8])
+        SNF = Diagonal(parse.(Int,split(line)[9:11]))
+        a = parse(Int,split(line)[12])
+        b = parse(Int,split(line)[13])
+        c = parse(Int,split(line)[14])
+        d = parse(Int,split(line)[15])
+        e = parse(Int,split(line)[16])
+        f = parse(Int,split(line)[17])
+        HNF = LowerTriangular([a 0 0
+                               b c 0 
+                               d e f])
+
+        l = parse.(Int,split(line)[18:26])
+        lTransform = hcat([l[i:i+2] for i=1:3:7]...)'
+        labeling = split(line)[27]
+        arrows = try split(line)[28] catch y repeat("0",length(labeling)) end
+        eStruct =  EnumStruct(idx,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
+        crystal = MatSim.Crystal(enum,eStruct,["Ag","Pd"],mink=false)
+        energy = (MatSim.totalEnergy(crystal,model)+ offset) * stdEnergy + meanEnergy
+        conc = [n/crystal.nAtoms for n in crystal.nType]
+        strN = idx - 15
+        printString = @sprintf "%5d  %8.4f %8.4f %8.4f\n" strN conc[1] conc[2] energy 
+        write(io,printString)
+    end
+    close(io)
+end
 function read_struct_from_enum(file,strN)
     keepLine = 0
     for (idx,line) in enumerate(eachline(file))

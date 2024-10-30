@@ -1,4 +1,3 @@
-#module LJ
 
 
 function forceOnSingleParticle(positions::Array{SVector{2,Float64},1},particle::SVector{2,Float64},boxSize::Float64):: SVector{2,Float64}
@@ -31,7 +30,7 @@ end
 
 
 
-function singleAtomEnergy(LJ::LJ,crystal::Crystal,centerAtom::Vector{Float64}, centerType:: Integer, loopBounds::Vector{Int64})
+function singleAtomEnergy(LJ::LJ,crystal::Crystal,centerAtom::SVector{3,Float64}, centerType:: Integer, loopBounds::SVector{3,Int64})
     #ljvals = zeros(3,2)  #Specific to binary material.  Needs generalized to n-ary case.
     totalEnergy = 0
     addVec = zeros(3)
@@ -39,7 +38,10 @@ function singleAtomEnergy(LJ::LJ,crystal::Crystal,centerAtom::Vector{Float64}, c
     for (iNeighbor,aType) in enumerate(crystal.atomicBasis), neighboratom in aType  #Loop over the different atom types.
             # And these three inner loops are to find all of the periodic images of a neighboring atom.
         for i = -loopBounds[1]:loopBounds[1], j = -loopBounds[2]:loopBounds[2], k= -loopBounds[3]:loopBounds[3]
-            addVec[1],addVec[2],addVec[3] .= Float64(i), Float64(j), Float64(k)
+            addVec .= (i,j,k) 
+#            addVec[2] = Float64(j)
+#            addVec[3] = Float64(k)
+#            addVec[1],addVec[2],addVec[3] .= Float64(i), Float64(j), Float64(k)
             newAtom = neighboratom + addVec
             newCart = DirectToCartesian(crystal.latpar * crystal.lVecs,newAtom)
             r = norm(newCart - centerAtom) 
@@ -47,13 +49,13 @@ function singleAtomEnergy(LJ::LJ,crystal::Crystal,centerAtom::Vector{Float64}, c
                 #If the neighbor atom is inside the unit cell, then its going to be
                 # double counted at some point when we center on the other atom.  
                 # So we count it as half each time.
-                indices = sort([iNeighbor,centerType])
+                indices = iNeighbor < centerType ? @SVector[iNeighbor,centerType] : @SVector[centerType,iNeighbor]
                 if all(isapprox.(addVec,0.0) ) 
-                    totalEnergy -=  4. * LJ.params[indices...,1] * 1/2 * LJ.params[indices...,2]^6/r^6
-                    totalEnergy +=  4. * LJ.params[indices...,1] * 1/2 * LJ.params[indices...,2]^12/r^12
+                    totalEnergy -=  4. * LJ.ϵ[indices[1],indices[2]] * 1/2 * LJ.σ[indices[1],indices[2]]^6/r^6
+                    totalEnergy +=  4. * LJ.ϵ[indices[1],indices[2]] * 1/2 * LJ.σ[indices[1],indices[2]]^12/r^12
                 else 
-                    totalEnergy -= 4. * LJ.params[indices...,1] * LJ.params[indices...,2]^6/r^6
-                    totalEnergy += 4. * LJ.params[indices...,1] * LJ.params[indices...,2]^12/r^12
+                    totalEnergy -= 4. * LJ.ϵ[indices[1],indices[2]] * LJ.σ[indices[1],indices[2]]^6/r^6
+                    totalEnergy += 4. * LJ.ϵ[indices[1],indices[2]] * LJ.σ[indices[1],indices[2]]^12/r^12
                 end
             end
         end
@@ -109,7 +111,7 @@ function totalDistances!(crystal::Crystal,LJ::LJ)
 end
 
 function totalEnergy(crystal::Crystal,LJ::LJ)
- #   if !all(crystal.r6 .== 0.0)
+    if !all(crystal.r6 .== 0.0)
         totalEnergy = 0.0
         for i in eachindex(LJ.ϵ)
             totalEnergy += -LJ.ϵ[i] * LJ.σ[i]^6 * crystal.r6[i] + LJ.ϵ[i] * LJ.σ[i]^12 * crystal.r12[i]
@@ -117,17 +119,16 @@ function totalEnergy(crystal::Crystal,LJ::LJ)
 #        @time "total Energy" totalEnergy = sum(-LJ.ϵ .* LJ.σ .^6 .* crystal.r6 .+ LJ.ϵ .* LJ.σ .^12 .* crystal.r12 ) 
  #       println("Doing it the easy way!")
         return totalEnergy
-#    end
-#    println("Doing it the hard way!")
-#    CartesianToDirect!(crystal)
-#    totalEnergy = 0 
-#    loopBounds = convert.(Int64,cld.(LJ.cutoff ,[norm(x) for x in eachcol(crystal.latpar * crystal.lVecs)] ))
-#    # The outer two loops are to loop over different centering atoms.
-#    for (iCenter,centerAtomType) in enumerate(crystal.atomicBasis), centerAtom in centerAtomType 
-#        centerAtomC = DirectToCartesian(crystal.latpar * crystal.lVecs,centerAtom)
-#        totalEnergy += singleAtomEnergy(LJ,crystal,centerAtomC,iCenter,loopBounds)    # Find the contribution to the LJ energy for this centering atom.
-#    end
-#    return totalEnergy
+    end
+    CartesianToDirect!(crystal)
+    totalEnergy = 0 
+    loopBounds = SVector{3,Int64}(convert.(Int64,cld.(LJ.cutoff ,[norm(x) for x in eachcol(crystal.latpar * crystal.lVecs)] )))
+    # The outer two loops are to loop over different centering atoms.
+    for (iCenter,centerAtomType) in enumerate(crystal.atomicBasis), centerAtom in centerAtomType 
+        centerAtomC = DirectToCartesian(crystal.latpar * crystal.lVecs,centerAtom)
+        totalEnergy += singleAtomEnergy(LJ,crystal,centerAtomC,iCenter,loopBounds)    # Find the contribution to the LJ energy for this centering atom.
+    end
+    return totalEnergy
 end
 
 
@@ -304,228 +305,6 @@ function initializeMetrop(metrop::Dict,LJ::LJ)
 end
 
 
-function σ_hists(results::LJ_metrop,LJ::LJ)
-
-    nInteractionTypes = Int(LJ.order * (LJ.order + 1)/2)  # How many parameters do I expect to get
-    cDir = pwd()
-    #Read the draws from file
-    data = readdlm(joinpath(cDir,"draws.out"),skipstart = 2)
-    if convert(Int64,(size(data)[2] - 1)/2) != nInteractionTypes
-        error("Order of system doesn't match with number of parameters in draw file")
-    end
-    σ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    for i = 1:LJ.order, j = i:LJ.order
-        σ_draws[:,i,j] = convert.(Float64,data[:,nInteractionTypes + (i - 1) * LJ.order + j])
-    end
-    if size(LJ.σ)[1] != LJ.order
-        error("Number of interaction types not matching up with specified order")
-    end
-
-    keeps = [a for a in CartesianIndices(LJ.σ) if a[2] >= a[1]]
-    keeps = sort(sort(keeps,by = x->x[1]),by = x->x[2])
-
-    intDict = Dict(1=>"a",2=>"b")
-    x = 0:0.01:3
-    σ_hists = [histogram(σ_draws[:,a],bins = 100,normalize = :pdf,annotations = ((0.5,0.95),(@sprintf("σ-%s%s\nAcceptance Rate: %5.1f %%",intDict[a[1]],intDict[a[2]],results.σ_accept[a]*100),6))) for a in keeps]
-
-    σ = plot(σ_hists...)
-    plot!(x,[pdf(results.σ_Priors[a],x) for a in keeps],lw=6,lc = :red)
-
-    return σ
-end
-
-
-function ϵ_hists(results::LJ_metrop,LJ::LJ)
-
-    nInteractionTypes = Int(LJ.order * (LJ.order + 1)/2)  # How many parameters do I expect to get
-    cDir = pwd()
-    #Read the draws from file
-    data = readdlm(joinpath(cDir,"draws.out"),skipstart = 2)
-    if convert(Int64,(size(data)[2] - 1)/2) != nInteractionTypes
-        error("Order of system doesn't match with number of parameters in draw file")
-    end
-    ϵ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    for i = 1:LJ.order, j = i:LJ.order
-        ϵ_draws[:,i,j] = convert.(Float64,data[:,(i - 1) * LJ.order + j])
-    end
-    if size(LJ.σ)[1] != LJ.order
-        error("Number of interaction types not matching up with specified order")
-    end
-
-    keeps = [a for a in CartesianIndices(LJ.σ) if a[2] >= a[1]]
-    keeps = sort(sort(keeps,by = x->x[1]),by = x->x[2])
-
-    intDict = Dict(1=>"a",2=>"b")
-    x = 0:0.01:3
-    ϵ_hists = [histogram(ϵ_draws[:,a],bins = 100,normalize = :pdf,annotations = ((0.5,0.95),(@sprintf("σ-%s%s\nAcceptance Rate: %5.1f %%",intDict[a[1]],intDict[a[2]],results.ϵ_accept[a]*100),6))) for a in keeps]
-
-    ϵ = plot(ϵ_hists...)
-    plot!(x,[pdf(results.ϵ_Priors[a],x) for a in keeps],lw=6,lc = :red)
-
-
-    return ϵ
-end
-
-function std_hist(results::LJ_metrop,LJ::LJ)
-
-    nInteractionTypes = Int(LJ.order * (LJ.order + 1)/2)  # How many parameters do I expect to get
-    cDir = pwd()
-    #Read the draws from file
-    data = readdlm(joinpath(cDir,"draws.out"),skipstart = 2)
-    if convert(Int64,(size(data)[2] - 1)/2) != nInteractionTypes
-        error("Order of system doesn't match with number of parameters in draw file")
-    end
-    std_draws = convert.(Float64,data[:,end])
-    if size(LJ.σ)[1] != LJ.order
-        error("Number of interaction types not matching up with specified order")
-    end
-
-
-    intDict = Dict(1=>"a",2=>"b")
-    x = 0:0.01:3
-
-
-    std_hist = histogram(std_draws,bins = 100,normalize = :pdf,annotations = ((0.5,0.5),@sprintf("Acceptance Rate: %5.1f %%",results.std_accept[1]*100)))
-    plot!(x,pdf(results.std_Prior,x),lw =6,lc = :red)
-    return std_hist
-end
-
-function predPlot(results::LJ_metrop,LJ::LJ,trainingSet::DataSet,holdoutSet::DataSet,meanEnergy::Float64, stdEnergy::Float64,offset::Float64)
-#histogram(results.σ_draws)
-    nInteractionTypes = Int(LJ.order * (LJ.order + 1)/2)  # How many parameters do I expect to get
-    cDir = pwd()
-    #Read the draws from file
-    data = readdlm(joinpath(cDir,"draws.out"),Float64;skipstart = 2)
-    if convert(Int64,(size(data)[2] - 1)/2) != nInteractionTypes
-        error("Order of system doesn't match with number of parameters in draw file")
-    end
-    ϵ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    σ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    for i = 1:LJ.order, j = i:LJ.order
-        ϵ_draws[:,i,j] = convert.(Float64,data[:,(i - 1) * LJ.order + j])
-        σ_draws[:,i,j] = convert.(Float64,data[:,nInteractionTypes + (i - 1) * LJ.order + j])
-    end
-    if size(LJ.σ)[1] != LJ.order
-        error("Number of interaction types not matching up with specified order")
-    end
-
-    trueVals = zeros(Float64,length(holdoutSet.crystals))
-    predictVals = zeros(Float64,length(holdoutSet.crystals))
-    predictUnc = zeros(Float64,length(holdoutSet.crystals))
-    rmsError = zeros(Float64,length(holdoutSet.crystals))
-    for j = 1:length(holdoutSet.crystals)
-        trueVals[j] = (holdoutSet.crystals[j].energyFP + offset) * stdEnergy + meanEnergy 
-        overDraws = zeros(Float64,results.nDraws - results.nBurnIn)
-        for i = 1:results.nDraws - results.nBurnIn
-            LJ.ϵ[:,:] .= ϵ_draws[i,:,:]
-            LJ.σ[:,:] .= σ_draws[i,:,:]
-            overDraws[i] = (MatSim.totalEnergy(holdoutSet.crystals[j],LJ) + offset) * stdEnergy + meanEnergy
-        end
-        predictVals[j] = mean(overDraws)
-        predictUnc[j] = std(overDraws)
-    end
-    percentError = (predictVals .- trueVals)./trueVals
-    percentHist = histogram(percentError,bins = 100,normalize = :pdf,title = "percent error")
-    rmsError = sqrt(mean( (trueVals .- predictVals).^2 ))
-
-
-    upper = maximum(trueVals)
-    lower = minimum(trueVals)
-    x = 1.15*lower:0.05:0.85*upper
-    r = @layout [grid(2,1)]
-
-    # Plot predicted vs true energies. Slope=1 line is a perfect fit.
-    myp = plot(predictVals,trueVals,seriestype = :scatter,xerror = predictUnc,ms = 2.5,ylabel = "True Energy (eVs/atom)", xlabel = "Predicted Energy (eVs/atom)",legend=false)
-    tag = @sprintf("RMS Error: %8.4f",rmsError)
-    annotate!((0.75,0.25),tag)
-    final = plot(myp,percentHist,layout = r)
-    plot!(x,x,lw = 5)
-    #using Printf
-    return final
-end
-
-function tracePlots()
-
-    #histogram(results.σ_draws)
-    nInteractionTypes = Int(LJ.order * (LJ.order + 1)/2)  # How many parameters do I expect to get
-    cDir = pwd()
-    #Read the draws from file
-    data = readdlm(joinpath(cDir,"draws.out"),skipstart = 2)
-    if convert(Int64,(size(data)[2] - 1)/2) != nInteractionTypes
-        error("Order of system doesn't match with number of parameters in draw file")
-    end
-    ϵ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    σ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    std_draws = convert.(Float64,data[:,end])
-    for i = 1:LJ.order, j = i:LJ.order
-        ϵ_draws[:,i,j] = convert.(Float64,data[:,(i - 1) * LJ.order + j])
-        σ_draws[:,i,j] = convert.(Float64,data[:,nInteractionTypes + (i - 1) * LJ.order + j])
-    end
-    if size(LJ.σ)[1] != LJ.order
-        error("Number of interaction types not matching up with specified order")
-    end
-    # We don't use the lower left triangle of the matrix of parameters, so let's get the indices right now and sort them so the plots
-    # are arranged correctly.
-    keeps = [a for a in CartesianIndices(LJ.σ) if a[2] >= a[1]]
-    keeps = sort(sort(keeps,by = x->x[1]),by = x->x[2])
-
-    g = @layout [grid(LJ.order,LJ.order)]
-    intDict = Dict(1=>"a",2=>"b")
-
-    tracePlots = plot([ϵ_draws[results.nBurnIn:end,a] for a in keeps],annotations = ((0.5,0.95),(@sprintf("σ-%s%s\nAcceptance Rate: %5.1f %%",intDict[a[1]],intDict[a[2]],results.ϵ_accept[a]*100),6))
-,layout = g, size = (2000,1000),legend = false)
-    plot!( [σ_draws[results.nBurnIn:end,a] for a in keeps],annotations = ((0.5,0.95),(@sprintf("σ-%s%s\nAcceptance Rate: %5.1f %%",intDict[a[1]],intDict[a[2]],results.σ_accept[a]*100),6)),layout = g, size = (2000,1000),legend = false)
-    return tracePlots
-end
-
-
-
-function hists2d(results::LJ_metrop,LJ::LJ,type; ar = 1.0)
-    #histogram(results.σ_draws)
-    nInteractionTypes = Int(LJ.order * (LJ.order + 1)/2)  # How many parameters do I expect to get
-    cDir = pwd()
-    #Read the draws from file
-    data = readdlm(joinpath(cDir,"draws.out"),skipstart = 2,Float64)
-    if convert(Int64,(size(data)[2] - 1)/2) != nInteractionTypes
-        error("Order of system doesn't match with number of parameters in draw file")
-    end
-    ϵ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    σ_draws = zeros(results.nDraws-results.nBurnIn,LJ.order,LJ.order)
-    std_draws = convert.(Float64,data[:,end])
-    for i = 1:LJ.order, j = i:LJ.order
-        ϵ_draws[:,i,j] = convert.(Float64,data[:,(i - 1) * LJ.order + j])
-        σ_draws[:,i,j] = convert.(Float64,data[:,nInteractionTypes + (i - 1) * LJ.order + j])
-    end
-    if size(LJ.σ)[1] != LJ.order
-        error("Number of interaction types not matching up with specified order")
-    end
-
-    intDict = Dict(1=>"a",2=>"b")
-    if type == "σ-σ" || type == "ϵ-ϵ"
-        combs = collect(multiset_combinations(1:nInteractionTypes,2))
-        elem = [[i,j] for i = 1:LJ.order for j = i:LJ.order]
-        final = [[elem[i[1]],elem[i[2]]] for i in combs]
-
-        if type == "σ-σ"
-            hist2ds = [histogram2d(σ_draws[:,x[1]...],σ_draws[:,x[2]...],xlabel = @sprintf("σ-%s%s ",intDict[x[1][1]],intDict[x[1][2]]),ylabel = @sprintf("σ-%s%s",intDict[x[2][1]],intDict[x[2][2]]),left_margin = 16Plots.mm,bottom_margin = 6Plots.mm, xlim = (0.9*minimum(σ_draws[:,x[1]...]),1.1* maximum(σ_draws[:,x[1]...])),ylim = (0.9*minimum(σ_draws[:,x[2]...]),1.1* maximum(σ_draws[:,x[2]...]))) for x in final  ]
-            r = @layout [grid(length(combs),1)] 
-            hist2dplots = plot(hist2ds...,layout = r,aspect_ratio = ar, size = (2000,1000))
-        else
-            hist2ds = [histogram2d(ϵ_draws[:,x[1]...],ϵ_draws[:,x[2]...],xlabel = @sprintf("ϵ-%s%s ",intDict[x[1][1]],intDict[x[1][2]]),ylabel = @sprintf("ϵ-%s%s",intDict[x[2][1]],intDict[x[2][2]]),left_margin = 16Plots.mm,bottom_margin = 6Plots.mm, xlim = (0.9*minimum(ϵ_draws[:,x[1]...]),1.1* maximum(ϵ_draws[:,x[1]...])),ylim = (0.9*minimum(ϵ_draws[:,x[2]...]),1.1* maximum(ϵ_draws[:,x[2]...]))) for x in final  ]
-            r = @layout [grid(length(combs),1)] 
-            hist2dplots = plot(hist2ds...,layout = r,aspect_ratio = ar, size = (2000,1000))
-        end
-    else
-        elem = [[i,j] for i = 1:LJ.order for j = i:LJ.order]
-        hist2ds = [histogram2d(σ_draws[:,y...],ϵ_draws[:,x...],xlabel = @sprintf("σ-%s%s ",intDict[x[1]],intDict[x[2]]),ylabel = @sprintf("ϵ-%s%s",intDict[y[1]],intDict[y[2]]),left_margin = 16Plots.mm,bottom_margin = 6Plots.mm, xlim = (0.9*minimum(σ_draws[:,y...]),1.1* maximum(σ_draws[:,y...])),ylim = (0.9*minimum(ϵ_draws[:,x...]),1.1* maximum(ϵ_draws[:,x...]))) for x in elem for y in elem ]
-        r = @layout [grid(nInteractionTypes,nInteractionTypes)] 
-        hist2dplots = plot(hist2ds...,layout = r,aspect_ratio = ar,colorbar=false, size = (2000,1000))
-
-    end
-    return hist2dplots
-        
-end
-
 function sample_σ!(metrop::LJ_metrop,data::DataSet,LJ::LJ,LJ_next::LJ,std)
 
     for j = 1:LJ.order, k = j:LJ.order
@@ -676,56 +455,3 @@ function writeDraw(LJ::LJ,std_draw,file)
     write(file,printString)
 end
 
-#function getSamples(metrop::LJ_metrop,data::DataSet,LJ::LJ)
-#    nParams = size(metrop.candSig_params)
-#    LJ_next = deepcopy(LJ)
-##    metrop.model.params .= zeros(nParams...)
-#    order = LJ.order
-##    drawsWithCand = zeros(nParams...)
-#    for i = 2:metrop.nDraws
-#       # println(i)
-#        metrop.params_draws[i,:,:,:] .= metrop.params_draws[i-1,:,:,:]  # Set the next draw to be equal to the previous.  I
-#        LJ.params .= metrop.params_draws[i,:,:,:]  # Need to assemble the vector of parameters with the candidate draw inserted at the right place.
-#        metrop.σ_draws[i] = metrop.σ_draws[i-1]
-#        for j = 1:order, k = j:order, l = 1:2
-#            cand = rand(metrop.proposal(metrop.params_draws[i,j,k,l],metrop.candSig_params[j,k,l]))
-#            if cand < 0.05
-#                continue
-#            end 
-#
-#            LJ.params[j,k,l] = cand
-#            numerator = metrop.logpost(data,LJ,metrop.σ_draws[i]) + log(pdf(metrop.proposal(cand,metrop.candSig_params[j,k,l]),metrop.params_draws[i,j,k,l]))
-#            LJ.params[j,k,l] = metrop.params_draws[i,j,k,l]
-#            
-#            denominator =metrop.logpost(data,LJ,metrop.σ_draws[i])  + log(pdf(metrop.proposal(metrop.params_draws[i,j,k,l],metrop.candSig_params[j,k,l]),cand))
-#            r = numerator - denominator
-#            unif = log(rand(Uniform(0,1)))  # Draw from a uniform.
-#            if r >= 0 || ((r < 0) & (unif < r))  # Accept?
-#                LJ.params[j,k,l] = cand
-#                metrop.params_draws[i,j,k,l] = cand   # Yes!
-#                metrop.params_accept[j,k,l] += 1/metrop.nDraws
-#            end
-#        end
-#
-#        #LJ.params .= metrop.params_draws[i,:,:,:]  # Get the updated mu values to use when getting draws for sigma
-#
-#        ## Now get sigma draws...
-#
-#        cand = rand(metrop.proposal(metrop.σ_draws[i],metrop.candSig_σ))
-#        if cand < 0.05
-#            continue
-#        end 
-#        numerator = metrop.logpost(data,LJ,cand) + log(pdf(metrop.proposal(cand,metrop.candSig_σ),metrop.σ_draws[i]))
-#        denominator =metrop.logpost(data,LJ,metrop.σ_draws[i])  + log(pdf(metrop.proposal(metrop.σ_draws[i],metrop.candSig_σ),cand))
-#        r = numerator - denominator
-#        unif = log(rand(Uniform(0,1)))  # Draw from a uniform.
-#        if r >= 0 || ((r < 0) & (unif < r))  # Accept?
-#            metrop.σ_draws[i] = cand   # Yes!
-#            metrop.σ_accept[1] += 1/metrop.nDraws
-#        end
-#
-#    end     
-#    return metrop
-#end
-#
-##end

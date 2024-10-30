@@ -23,22 +23,37 @@ function getTraining_Holdout_Sets(dset::DataSet,nStructures)
 end
 
 function readStructuresIn(folder::String,file::String,species::Vector{String};overwriteLatPar = false)
-    cd(folder)
-    file = open(file,"r")
-    pos = readlines(file)
+#    cd(folder)
+#    file = open(file,"r")
+    #pos = readlines(file)
 
     data = Vector{Crystal}()
-    for (idx,line) in enumerate(pos)
-
+    cLines = Vector{String}()
+    counter = 0
+    for (idx,line) in enumerate(eachline(joinpath(folder,"structures.AgPt")))
+        if idx == 1
+            continue
+        end
         if occursin("#--",line)
-            nAtoms = sum([parse(Int64,x) for x in split(pos[idx + 6])])
-            startpoint = idx + 1
-            theend = idx + 7 + nAtoms
-            thisCrystal = Crystal(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyFP = parse(Float64,pos[theend + 2 ]))
+            thisCrystal = Crystal(cLines,species,overwriteLatPar = overwriteLatPar, energyFP = parse(Float64,cLines[end]))
             if !isnan(thisCrystal.energyFP)
                 push!(data,thisCrystal)
             end
+            cLines = Vector{String}()
+            counter = 0
+        else
+            push!(cLines,line)
+            counter += 1
         end
+#        if occursin("#--",line)
+#            nAtoms = sum(parse(Int64,x) for x in split(pos[idx + 6]))
+#            startpoint = idx + 1
+#            theend = idx + 7 + nAtoms
+#            thisCrystal = Crystal(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyFP = parse(Float64,pos[theend + 2 ]))
+#            if !isnan(thisCrystal.energyFP)
+#                push!(data,thisCrystal)
+#            end
+#        end
     end
     meanEnergy = mean([i.energyFP for i in data])
     stdEnergy = std([i.energyFP for i in data])    

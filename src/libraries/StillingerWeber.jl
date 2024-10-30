@@ -15,43 +15,56 @@ function isEquivalentAtom(atomOne,atomTwo)  # Atoms are assumed to be in direct 
 
 end
 
-function isValidTriplet(centerAtom,atomTwo,atomThree,radius)
+function isValidTriplet(triplet,radius)
 
     r1 = norm(centerAtom - atomTwo)
     r2 = norm(centerAtom - atomThree)
 
-    differentPos =  !all(centerAtom .≈ atomTwo) && !all(centerAtom .≈ atomThree) && !all(atomTwo .≈ atomThree) 
+    differentPos =  !all(triplet.centerAtom .≈ triplet.atomTwo) && !all(triplet.centerAtom .≈ triplet.atomThree) && !all(atomTwo .≈ triplet.atomThree) 
     insideRadius = r1 < radius && r2 < radius
     return differentPos && insideRadius
 
 end
 
-function getRandTheta(centerAtom, atomOne,atomTwo)
-    diffVecOne = atomOne - centerAtom
-    diffVecTwo = atomTwo - centerAtom
+function initializeTriplet(centerAtom,atomTwo,atomThree,types)
+    diffVecOne = triplet.atomTwo - triplet.centerAtom
+    diffVecTwo = triplet.atomThree - triplet.centerAtom
     r1 = norm(diffVecOne)
     r2 = norm(diffVecTwo)
     cosθ = diffVecOne' * diffVecTwo/(norm(diffVecOne) * norm(diffVecTwo))
-    return [r1,r2,cosθ]
+    return triplet(centerAtom,atomTwo,atomThree,r1,r2,cosθ,types)
+    #return [r1,r2,cosθ]
 
 end
 
+#function getRandTheta(triplet)
+#    diffVecOne = triplet.atomTwo - triplet.centerAtom
+#    diffVecTwo = triplet.atomThree - triplet.centerAtom
+#    r1 = norm(diffVecOne)
+#    r2 = norm(diffVecTwo)
+#    cosθ = diffVecOne' * diffVecTwo/(norm(diffVecOne) * norm(diffVecTwo))
+#    return [r1,r2,cosθ]
+#
+#end
 
-function SW_pair(r,params)
-    return params["ϵ"] (params["B"] * (params["σ"]/r)^4 - 1) * exp(1/(r/params["σ"] - params["a"]))
+
+function SW_pair(pair,SW)
+    return (SW.A[pair.types...] * pair.r^SW.p[pair.types...] - SW.B[pair.types...] * pair.r^SW.q[pair.types...] ) * exp(SW.δ[pair.types...]/(pair.r - SW.a[pair.types...]))
 end
 
-function SW_threeBody(r12,r13,cosθ,params)
-    return params["ϵ"] * params["λ"] * exp(params["γ"]/(r12/params["σ"] - params["a"]) + params["γ"]/(r13/params["σ"] - params["a"])) * (cosθ - params["h"])^2
+function SW_threeBody(triplet,SW)
+    return SW.λ[triplet.types...]* exp(SW.γ[triplet.types[1:2]...]/(triplet.r1 - SW.b[triplet.types[1:2]...])  +  SW.γ[[triplet.types[1],triplet.types[3]]...]/(triplet.r2 - SW.b[[triplet.types[1],triplet.types[3]]...])) * (triplet.cosθ + 1/3)^2
 end
 
+
+# Calculates sum of all pair energies in a crystal.
 function pairEnergy(crystal::crystal, params, atomOne, typeTwo, radius)
     convertToDirect!(crystal)
     atom = convertToCartesian(crystal.lVecs,crystal.atomicBasis[atomOne[1]][atomOne[2]])
     pairE = 0.0
     # The three inner loops are to find all of the atoms inside of the cutoff sphere.  The outer loop is
     count = 0
-    for atomA in crystal.atomicBasis[typeTwo], i = -3:3, j = -3:3#, k = -10:10
+    for atomA in crystal.atomicBasis[typeTwo], i = -3:3, j = -3:3, k = -10:10
         newAtomDirect = atomA + I * [i,j,0]
         newAtomCart = convertToCartesian(crystal.lVecs, newAtomDirect)
         r =  norm(atom - newAtomCart)
@@ -123,6 +136,7 @@ function threeBodyEnergy(crystal::crystal, params,atomOne, types, radius,allTouc
       
     
     for pair in dubs
+        thisTriplet = getRandTheta(atomOneC,atomTwoC,atomThreeC)
         atomTwoC .= convertToCartesian(crystal.lVecs, pair[1])
         atomThreeC .= convertToCartesian(crystal.lVecs, pair[2])
 
