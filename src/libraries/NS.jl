@@ -4,7 +4,7 @@ function initializeSimulation(inputs,species,model)
     lVecs = hcat(parsedlVecs...)
     configs = [buildRandom(inputs["lPar"],lVecs,inputs["nAtoms"],inputs["minSep"],species) for i in 1:inputs["K"]]
     for i in configs
-        i.modelEnergy = MatSim.totalEnergy(i,model)
+        i.energyPerAtomModel = MatSim.totalEnergy(i,model)
     end
     return NS(inputs["K"],inputs["Kr"],inputs["L"],inputs["eps"],inputs["walkMethod"],configs)
 end
@@ -18,8 +18,8 @@ function nestedSampling(NS::NS,LJ::LJ)
         println(i)
         println("V = ", V)
         ## Find the top Kr highest energies
-        sEnergies =  reverse(sortperm([i.modelEnergy for i in NS.configs]))
-        energyCutoff = NS.configs[sEnergies[NS.Kr]].modelEnergy  # Find the 
+        sEnergies =  reverse(sortperm([i.energyPerAtomModel for i in NS.configs]))
+        energyCutoff = NS.configs[sEnergies[NS.Kr]].energyPerAtomModel  # Find the 
         # Which configs need to be thrown out.
         forDelete = sEnergies[1:NS.Kr]
         # Which configs can be kept
@@ -53,14 +53,14 @@ function randomWalk!(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
             # Get a random displacement vector
             randDisplace = (rand(3).-0.5)*0.1
             config.atomicBasis[iType][iAtom] += randDisplace
-            newEnergy = totalEnergy(config,model)
+            newEnergy = totalEnergy(config,model) # Want total energies for NS
             # If the move resulted in a higher energy, undo the move and go to the next atom.
             if newEnergy > energyCutoff
                 #@printf "Rejected------------------------------------\n"
                 config.atomicBasis[iType][iAtom] -= randDisplace
             else # Otherwise, update the energy 
               #  @printf "Accepted\n"
-                config.modelEnergy = newEnergy
+                config.energyPerAtomModel = newEnergy
             end     
         end   
 #        randDisplacement = [[ (rand(3).-0.5)*0.1 for i =1:config.nType[j]] for j = 1:config.order]
@@ -71,33 +71,62 @@ function randomWalk!(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
 end
 
 # Galilean Monte Carlo
- function GMC(config::Crystal,nWalk::Int64)
-
-    oldEnergy = sum(totalEnergy(config,LJcutoff,params = LJparams))
+ function GMC(config::Crystal,nWalk::Int64,model)
+    initialConfig = deepcopy(config)
+    oldEnergy = MatSim.totalEnergy(config,model)
+    MatSim.DirectToCartesian!(config)
+    println("energy at start")
+    println(oldEnergy)
     newEnergy = 1e6
     dt = 0.1
     
-    velocities = [[ (rand(3).-0.5)*0.1 for i =1:config.aType[j]] for j = 1:config.order]
+    velocities = [[zeros(SVector{3}) for i = 1:length(config.atomicBasis[j])] for j = 1:config.order]
+    for j = 1:config.order, i = 1:1:length(config.atomicBasis[j])
+        randVel = convert(SVector{3},(  2 * rand(3) .- 1.0))
+        velocities[j][i] =randVel/norm(randVel)
+    end
+    forces = [[zeros(SVector{3}) for x = 1:length(config.atomicBasis[n])] for n = 1:length(config.atomicBasis)]
+    display(velocities)
     for iWalk = 1:nWalk
-
-        while newEnergy > oldEnergy
-            
- #           config.atomicBasis += velocities * dt
- #           if any()
-
+        println("iWalk: ", iWalk)
+        println(config.coordSys)
+        display(config.atomicBasis[1][1])
+        config.atomicBasis += velocities * dt  # Propogate the postions forward
+        println("after movement")
+        println(config.coordSys)
+        display(config.atomicBasis[1][1])
+        newEnergy = MatSim.totalEnergy(config,model)  # Calculate the new energies
+        MatSim.DirectToCartesian!(config)
+        #println("new locations: ")
+        #display(config.atomicBasis)
+        println("newEnergy: ", newEnergy)
+        if newEnergy > oldEnergy  # If we went uphill, we need to try and re-direct the velocites in the direction of the net force.
+            println("Redirecting....----------------------------------->")
+            for (iType,aType) in enumerate(config.atomicBasis), (iAtom,atom) in enumerate(aType)  #Loop over the different atom types.
+                forces[iType][iAtom] = MatSim.gradientForce(model,config,@SVector[iType,iAtom],@SVector[2,2,2])
+            end
+            nHat = [x ./ norm.(x) for x in forces]
+#            println("velocity")
+#            display(velocities[1][1])
+#            display(nHat[1][1])
+            for j = 1:config.order, i = 1:length(config.atomicBasis[j])
+                @inbounds velocities[j][i] -= (2 * (velocities[j][i]' * nHat[j][i])) * nHat[j][i]
+            end
+#            println("after deflection")
+ #           display(velocities[1][1])
+#            dots = [[velocities[j][i]' * nHat[j][i] * nHat[j][i] for i =1:length(config.atomicBasis[j])] for j = 1:config.order]
+            #println("dots")
+            #display(dots)
+ #           velocities = velocities - 2 * dots
         end
     end
 
+    if newEnergy > oldEnergy
+        return initialConfig
+    else
+        return config
+    end
 end
 
 
 
-#nType = 3
-#aType = [5, 2 , 3]
-#test = [[(rand(3).-0.5)*0.1 for i =1:aType[j]] for j = 1:nType]
-#display(test[2])
-#
-#M = 8
-#m = 1.2
-#d = 1.0
-#d^2/2 *(1/2 * M + m)

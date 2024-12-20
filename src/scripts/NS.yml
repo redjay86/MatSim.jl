@@ -4,7 +4,7 @@ params:
   lVecs: [[1.0 0.0 0.0],
          [0.0 1.0 3.0],
          [0.0 0.0 2.0]] 
-  nAtoms: [50, 20]
+  nAtoms: [5, 3]
   minSep: 3.0
   K: 512 # Number of walkers in the pool.
   Kr: 6  # Number of walkers to remove at each iteration.

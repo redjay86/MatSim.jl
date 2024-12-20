@@ -27,13 +27,20 @@ function read_Enum_header(file)
 end
 
 
-function gss(file,model,meanEnergy, stdEnergy,offset;readend = 100)
+function gss(file,model,species;readend = 100)
+#    filePath = joinpath(dirname(file), "structures.AgPt")
+#    pures = findPureEnergies(filePath)
+    pureCrystals = fccPures(species)
+    pures = []
+    for pure in pureCrystals
+        push!(pures,MatSim.totalEnergy(pure,model))
+    end
+    println(pures)
     enum=MatSim.read_Enum_header(file)
     cDir = pwd()
 
     io = open(joinpath(cDir,"gss.out"),"w")
     for (idx,line) in enumerate(eachline(file))
-        println(idx-15)
         if idx - 15 > readend
             break
         end
@@ -65,12 +72,14 @@ function gss(file,model,meanEnergy, stdEnergy,offset;readend = 100)
         lTransform = hcat([l[i:i+2] for i=1:3:7]...)'
         labeling = split(line)[27]
         arrows = try split(line)[28] catch y repeat("0",length(labeling)) end
-        eStruct =  EnumStruct(idx,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
-        crystal = MatSim.Crystal(enum,eStruct,["Ag","Pd"],mink=false)
-        energy = (MatSim.totalEnergy(crystal,model)+ offset) * stdEnergy + meanEnergy
-        conc = [n/crystal.nAtoms for n in crystal.nType]
         strN = idx - 15
-        printString = @sprintf "%5d  %8.4f %8.4f %8.4f\n" strN conc[1] conc[2] energy 
+        eStruct =  EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
+        crystal = MatSim.Crystal(enum,eStruct,["Ag","Pt"],mink=true)
+        crystal.energyPerAtomModel = MatSim.totalEnergy(crystal,model)
+        conc = crystal.nType/crystal.nAtoms
+
+        crystal.formationEnergyModel = MatSim.formationEnergy(crystal.energyPerAtomModel,pures,conc)
+        printString = @sprintf "%5d  %8.4f %8.4f %8.4f %8.4f\n" strN conc[1] conc[2] crystal.energyPerAtomModel crystal.formationEnergyModel
         write(io,printString)
     end
     close(io)

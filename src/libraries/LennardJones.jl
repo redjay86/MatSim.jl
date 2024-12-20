@@ -135,11 +135,11 @@ end
 function logNormal(data::DataSet,LJ::LJ,σ::Float64)::Float64
     thesum = 0.0
     for i = 1:data.nData
-        thesum += (data.crystals[i].energyFP -totalEnergy(data.crystals[i],LJ))^2
+        thesum += (data.crystals[i].energyPerAtomFP -totalEnergy(data.crystals[i],LJ))^2
     end
     thesum *= - 1/(2 * σ^2)
     
-#    @time "thesum" thesum =  -data.nData/2 *log(σ^2) - 1/(2 * σ^2) * sum([(i.energyFP - totalEnergy(i,LJ))^2   for i in data.crystals])
+#    @time "thesum" thesum =  -data.nData/2 *log(σ^2) - 1/(2 * σ^2) * sum([(i.energyPerAtomFP - totalEnergy(i,LJ))^2   for i in data.crystals])
     return -data.nData/2 *log(σ^2) + thesum
 
 end
@@ -414,7 +414,7 @@ function predPlot(results::LJ_metrop,LJ::LJ,trainingSet::DataSet,holdoutSet::Dat
     predictUnc = zeros(Float64,length(holdoutSet.crystals))
     rmsError = zeros(Float64,length(holdoutSet.crystals))
     for j = 1:length(holdoutSet.crystals)
-        trueVals[j] = (holdoutSet.crystals[j].energyFP + offset) * stdEnergy + meanEnergy 
+        trueVals[j] = (holdoutSet.crystals[j].energyPerAtomFP + offset) * stdEnergy + meanEnergy 
         overDraws = zeros(Float64,results.nDraws - results.nBurnIn)
         for i = 1:results.nDraws - results.nBurnIn
             LJ.ϵ[:,:] .= ϵ_draws[i,:,:]

@@ -1,9 +1,10 @@
 
 dataset:
-  title: Cu-Pt
+  title: Ag-Pt
   file: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/structures.AgPt"
-  species: [Cu, Pt]
+  species: [Ag, Pt]
   nTraining: 300
+  fitTo: peratom
   standardize: true
   offset: 1.2
 
@@ -46,11 +47,11 @@ metrop:
       epsilon: 0.3
       sigma: 0.02
     ab:
-      epsilon: 1.5
-      sigma: 0.2
+      epsilon: 1.0
+      sigma: 0.05
     bb:
       epsilon: 1.4
-      sigma: 0.2
+      sigma: 0.05
     sigma: 0.2
   starting:
     aa:

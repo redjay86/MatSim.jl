@@ -10,7 +10,7 @@ INCAR:
   LORBIT: 10 # Static
 POTCAR:
   path: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/POTCARS"
-  species: [Cd, Al, Al]
+  species: [Al, Cd]
 KPOINTS:
   method: autoGR
   settings:
@@ -19,5 +19,5 @@ KPOINTS:
   density: 10000
 ENUM:
   file: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/struct_enum.out"
-  structs: random
-  nstructs: 100
+  structs: sequence
+  nstructs: 2-50

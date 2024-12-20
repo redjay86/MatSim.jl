@@ -23,11 +23,20 @@ element_volume =Dict("H"=>37.2958,"He"=>32.1789,"Li"=>21.2543,"Be"=>8.49323,"B"=
                  "Pd"=>30.3218,"Bi"=>31.2849,"U"=>13.6389, "O"=>13.6389)#"U"=>50.84, "O"=>15.86}
 
 
-Crystal(folder::String,file::String, species::Vector{String}; overwriteLatPar = false,energyFP = 0, modelEnergy = 0) = fromPOSCAR(folder,file,species,overwriteLatPar = overwriteLatPar, energyFP = 0, modelEnergy = 0)
-Crystal(list::Vector{String}, species::Vector{String}; overwriteLatPar = false, energyFP = 0, modelEnergy = 0) = fromPOSCAR(list, species,overwriteLatPar = overwriteLatPar,energyFP = energyFP, modelEnergy = modelEnergy)
-Crystal(enum::Enum,enumStruct::EnumStruct,species::Vector{String};mink::Bool=true) = fromEnum(enum,enumStruct,species,energyFP = 0,modelEnergy = 0,mink=mink)
+Crystal(filePath::String, species::Vector{String}; overwriteLatPar = false) = fromPOSCAR(filePath,species,overwriteLatPar = overwriteLatPar)
+Crystal(list::Vector{String}, species::Vector{String}; overwriteLatPar = false) = fromPOSCAR(list, species,overwriteLatPar = overwriteLatPar)
+Crystal(enum::Enum,enumStruct::EnumStruct,species::Vector{String};mink::Bool=true) = fromEnum(enum,enumStruct,species,mink=mink)
 
-function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};energyFP = 0, modelEnergy = 0,mink=true)
+
+"""
+    fromEnum(enum, enumStruct,species, [, energyPerAtomFP, modelEnergy, mink])
+
+    Builds a Crystal from the general enumeration data (enum) and the specific enumeration data for a given superstructure (enumStruct)
+    `enum` contains information about the parent lattice, whereas `enumStruct` contains all of the information about a given superstructure (HNF, labeling, etc.)
+    
+    In addition, you can specify an energy to attach to the crystal if you choose and you can specify if you want the parent lattice vectors to be "minkowski'd"
+"""
+function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};mink=true)
 
     cardinalDirections = Float64[0 0 0
                           1 0 0
@@ -48,7 +57,6 @@ function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};ene
             iC += 1
             temp = enum.pLV * [z1,z2,z3]
             temp2 = temp + enum.dVecs[iD]
-
             aBas[iC] .= temp2
 
             gReal = enumStruct.L * [z1,z2,z3]
@@ -69,8 +77,7 @@ function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};ene
         end
     end
     aType = [parse(Int,enumStruct.labeling[i]) for i in gIndex]  # Get the atomic labels in the right order (i.e. using gIndex)
-    nType = [count(==(i),aType) for i in Set(aType)]
-
+    nType = [count(==(i),aType) for i in sort!(collect(Set(aType)))]
     if !all(isapprox.(sort(gIndex), gIndex,atol = 1e-7))
         println(aType)
         println(sort(aType))
@@ -88,23 +95,26 @@ function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};ene
     arrows = [parse(Integer,enumStruct.arrows[i]+1) for i in gIndex]  #Get the list of arrows (as integers) in the right order.
     displacements = getPartitions([cardinalDirections[i,:] for i in arrows],nType) # Partition to the same shape as the basis list so we can easily add them.
     aBas .+= 0.1 * displacements
-    #println("check here")
-    #display(displacements)
-    #display(aType)
-    #display(aBas)
+
     cellVolume = abs(cross(sLV[:,1],sLV[:,2])' * sLV[:,3])
-    latpar = vegardsVolume(species,nType,cellVolume)
     
     nInteractions = Int(enum.k * (enum.k + 1)/2)
 
     r6 = UpperTriangular(zeros(enum.k,enum.k))
     r12 = UpperTriangular(zeros(enum.k,enum.k))
 
-    final = Crystal(enum.title * " str #: " * string(enumStruct.strN),latpar,mink ? minkowski_reduce(sLV,1e-5) : sLV,nType,aType,nAtoms,["C"],aBas,["Unk" for i in nType],0,0,enum.k,r6,r12)
+    final = Crystal(enum.title * " str #: " * string(enumStruct.strN),1.0,mink ? minkowski_reduce(sLV,1e-5) : sLV,nType,aType,nAtoms,["C"],aBas,["Unk" for i in nType],0,0,0,0,0,enum.k,r6,r12)
     CartesianToDirect!(final)
+    final.latpar = vegardsVolume(species,nType,cellVolume)
     return final
 end
 
+"""
+When building crystals we often start by building a list of atomic coordinates, irrespective of which type of atom they are.
+When you're all done, you'd like to partition that list by atomic type.  This is handy for accessing them later because the first index
+is the atom type and the second index is the number in that sublist.  This function simply performs that partitioning.
+
+"""
 function getPartitions(atoms::Vector{Vector{Float64}},nAtoms::Vector{Int64})
     if length(atoms) != sum(nAtoms)
         println("Number of atoms doesn't match")
@@ -114,7 +124,19 @@ function getPartitions(atoms::Vector{Vector{Float64}},nAtoms::Vector{Int64})
     return [atoms[parts[i]+1:parts[i+1]] for i=1:length(parts)-1]
 end
 
+"""
+The starting point for a nested sampling algorithm is a set of random configurations.  This function builds a single atomic configuration
+with atomic positions at random locations.
 
+# Arguments
+- `lPar: Float64`: lattice parameter
+- `lVecs: Matrix{Float64}`: lattice vectors (by columns)
+- `nAtoms: Vector{Int64}`: Vector containing the number of each atom type in the configuration
+- `cutoff: Float64`: No two atoms can be closer than this value.
+- `species: Vector{String}`: Vector of Strings representing the atomic species.  Might not be necessary!
+
+
+"""
 
 function buildRandom(lPar:: Float64, lVecs::Matrix{Float64},nAtoms::Vector{Int64},cutoff::Float64,species::Vector{String})
 
@@ -153,15 +175,24 @@ function buildRandom(lPar:: Float64, lVecs::Matrix{Float64},nAtoms::Vector{Int64
     k = length(species)
     r6 = UpperTriangular(zeros(k,k))
     r12 = UpperTriangular(zeros(k,k))
-    return Crystal("Random Locations",lPar,lVecs,nAtoms,aType,totalAtoms,["C"], atomicBasis,species,0.0,0.0,order,r6,r12)
+    return Crystal("Random Locations",lPar,lVecs,nAtoms,aType,totalAtoms,["C"], atomicBasis,species,0.0,0.0,0.0,0.0,0.0,order,r6,r12)
 end
 
+"""
+Construct a Crystal from a POSCAR file.
 
-function fromPOSCAR(folder::String,file::String,species::Vector{String};overwriteLatPar = false, energyFP = 0, modelEnergy = 0)
+# Arguments
+- `filePath:: String`: Location of POSCAR
+- `species:: Vector{String}`: Vector of Strings representing the atomic species.  Might not be necessary!
+- `overwriteLatPar:: Bool = false`: Do you want to keep the latpar in the file or compute it using Vegard's law
 
-    cd(folder)
+"""
+
+function fromPOSCAR(filePath::String,species::Vector{String};overwriteLatPar = false)
+
+#    cd(folder)
     
-    file = open(file, "r")
+    file = open(filePath, "r")
     pos = readlines(file)
 
     title = pos[1]
@@ -175,7 +206,7 @@ function fromPOSCAR(folder::String,file::String,species::Vector{String};overwrit
     coordSys = [pos[counter + 1]]
     latpar = parse(Float64,pos[2])
     aType = hcat([ [n for i=1:nBasis[n]]' for n=1:length(nBasis)]...)'
-    allBasis = [SVector{3,Float64}(parse.(Float64,split(x)[1:3])) for x in pos[(counter + 2):(counter + 1 +sum(nBasis))]] # Read all of the basis vectors
+    allBasis = [parse.(Float64,split(x)[1:3]) for x in pos[(counter + 2):(counter + 1 +sum(nBasis))]] # Read all of the basis vectors SVector{3,Float64}(
     allTypes = try
         [split(x)[end] for x in pos[(counter + 2):end]]
     catch e
@@ -201,14 +232,24 @@ function fromPOSCAR(folder::String,file::String,species::Vector{String};overwrit
     
     r6 = UpperTriangular(zeros(order,order))
     r12 = UpperTriangular(zeros(order,order))
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,r6,r12)  # Create new crystal object.
+#    fEnth = formationEnergy(pureEnergies,nBasis ./ nAtoms,energyPerAtomFP)
+
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,0.0,0.0,0.0,0.0,0.0,order,r6,r12)  # Create new crystal object.
 
 end
 
 
+"""
+Construct a Crystal from a list of lines (like when reading a structures.in file and you pick off the POSCARs one by one.)
 
+# Arguments
+- `lines:: Vector{String}`: POSCAR lines
+- `species:: Vector{String}`: Vector of Strings representing the atomic species.  Might not be necessary!
+- `overwriteLatPar:: Bool = false`: Do you want to keep the latpar in the file or compute it using Vegard's law
 
-function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPar = false, energyFP = 0.0,modelEnergy = 0.0)
+"""
+
+function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPar = false)
     title = lines[1]
     lVecs = reduce(hcat,[parse.(Float64, y) for y in [split(x) for x in lines[3:5]]])#SMatrix{3,3}() # Read in the lattice vectors.
     if !isletter(lstrip(lines[6])[1])
@@ -244,7 +285,8 @@ function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPa
     end
     r6 = UpperTriangular(zeros(order,order))
     r12 = UpperTriangular(zeros(order,order))
-    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,energyFP,modelEnergy,order,r6,r12)  # Create new crystal object.
+#    fEnth = formationEnergy(pureEnergies,nBasis ./ nAtoms,energyPerAtomFP)
+    return Crystal(title, latpar,lVecs,nBasis,aType,nAtoms,coordSys,atomicBasis,species,0.0,0.0,0.0,0.0,0.0,order,r6,r12)  # Create new crystal object.
 
 end
 
@@ -267,26 +309,84 @@ end
 #    return array(new_point)
 #end
 #
+
+"""
+     Calculate the formation energy for a crystal
+
+# Arguments
+- `pureEnergies:: Vector{Float64}`: Energies of pure crystals
+- `concs:: Vector{Float64}`: Vector of concentrations for the crystal being considered
+- `energyPerAtom:: Float64`: Energy/atom of the crystal
+
+"""
+
+function fccPures(types)
+
+    lVecs = @SMatrix [0.5 0.5 0
+             0.5 0 0.5
+             0 0.5 0.5]
+    lP = [latpars[x] for x in sort!(types,rev = true)]
+    nType = [1, 0]
+    aType = [1, 0]
+    nAtoms = 1
+    coordSys = ["D"]
+    atomicBasis = [[@SVector [0., 0 , 0]],[]]
+    species = sort!(types,rev =true)
+    order = length(types)
+    r6 = UpperTriangular(zeros(order,order))
+    r12 = UpperTriangular(zeros(order,order))
+    title = join(types, "-")
+    println(title)
+    return Crystal(title,lP[1],lVecs,nType,aType,nAtoms,coordSys,atomicBasis,species,0,0,0,0,0,order,r6,r12),
+           Crystal(title,lP[2],lVecs,reverse(nType),reverse(aType),nAtoms,coordSys,atomicBasis,species,0,0,0,0,0,order,r6,r12) 
+
+end
+
+function formationEnergy(mixEnergyPerAtom,pureEnergiesPerAtom,concentrations)
+    return mixEnergyPerAtom - sum(concentrations .* pureEnergiesPerAtom)
+
+end
+
+#function formationEnergyModel!(crystal,pures)
+#     crystal.formationEnergyModel = crystal.modelEnergy - sum(crystal.nType /crystal.nAtoms .* pures)
+#     crystal.formationEnergyFP = crystal.energyPerAtomFP - sum(crystal.nType /crystal.nAtoms .* pures)
+##    return energyPerAtom - sum(concs .* pureEnergies)
+#
+#end
+#
+#function formationEnergyFP!(crystal,pures)
+#    crystal.formationEnergyFP = crystal.energyPerAtomFP - sum(crystal.nType /crystal.nAtoms .* pures)
+##    return energyPerAtom - sum(concs .* pureEnergies)
+#
+#end
+
+function totalEnergyFromFormationEnergy!(crystal,pures)
+    crystal.formationEnergyFP = crystal.energyPerAtomFP - sum(crystal.nTypes/crystal.nAtoms .* pures)
+    crystal.energyPerAtomFP = crystal.formationEnergyFP + sum(crystal.nTypes/crystal.nAtoms .* pures)
+#    return energyPerAtom - sum(concs .* pureEnergies)
+
+end
+
 function DirectToCartesian!(crystal::Crystal)
     if crystal.coordSys[1] == "D"
-        #println("Converting to cartesian")
-        crystal.atomicBasis .= [[crystal.lVecs * i for i in j] for j in crystal.atomicBasis ]
+    #    println("Converting to cartesian")
+        crystal.atomicBasis .= [[crystal.latpar * crystal.lVecs * i for i in j] for j in crystal.atomicBasis ]
         #println(typeof(crystal.atomicBasis[1][1]))
 
         crystal.coordSys[1] = "C"
-    else
-#        println("Already in Cartesian coordinates")
+    #else
+    #    println("Already in Cartesian coordinates")
     end
 end
 
 function CartesianToDirect!(crystal::Crystal)
-    if crystal.coordSys[1] == "C"
+    if lowercase(crystal.coordSys[1]) == "c"
         #println("Converting to direct")
-        crystal.atomicBasis .= [[ round.( ( inv(crystal.lVecs) * i) .% 1,sigdigits = 8) for i in j]  for j in crystal.atomicBasis ]
+        crystal.atomicBasis .= [[ round.( ( inv(crystal.latpar * crystal.lVecs) * i) .% 1,sigdigits = 8) for i in j]  for j in crystal.atomicBasis ]
         #println(typeof(crystal.atomicBasis[1][1]))
         crystal.coordSys[1] = "D"
-    else
-#        println("Already in Cartesian coordinates")
+    #else
+       # println("Already in Cartesian coordinates")
     end
 end
 
@@ -363,8 +463,9 @@ end
 
 function reduce_C_in_ABC(ABC,eps)
     #oldABC = deepcopy(ABC)
-    A,B,C = ABC[:,1],ABC[:,2], ABC[:,3] 
+    A,B,C = ABC[:,1],ABC[:,2], ABC[:,3]
     A,B = Gaussian_Reduce(A,B,eps)
+    ABC = [A B C]  # Update ABC to have the updated vectors in it.
     cpdAB = cross(A,B)/norm(cross(A,B))  # Find the unit vector the points perp to A-B plane
 
     T = C - cpdAB * (C' * cpdAB)  # Find projection of C onto A-B plane
@@ -374,6 +475,7 @@ function reduce_C_in_ABC(ABC,eps)
 
 #    ABC = hcat(A, B, C)  # lVs by columns, not rows.
     LC = Int.(floor.(inv(ABC) * T .+ eps)) # Find what combinations of A,B,C will produce the projection.
+
     corners = [0 0 0
                1 0 0
                0 1 0
@@ -384,7 +486,6 @@ function reduce_C_in_ABC(ABC,eps)
     C = C - (ABC * (corners[idx,:] + LC))  # This is guaranteed to produce another lattice vector because you are subtracting multiples of other lattice vectors.
 
     newABC = hcat(A,B,C)
-
     if !all(isapprox.(inv(newABC) * ABC - Int.(round.(inv(newABC) * ABC)),0,atol = eps))
         display(inv(newABC)* ABC)
         display(Int.(round.(inv(newABC) * ABC)))
@@ -507,8 +608,6 @@ function vegardsVolume(elements,atom_counts,volume)
     nAtoms = sum(atom_counts)
     nTypes = length(atom_counts)
     concentrations = [x/nAtoms for x in atom_counts]
-    #println(nTypes)
-    #println(elements)
     if length(elements) != nTypes
         error("Not enough elements specified")
     end

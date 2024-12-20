@@ -16,7 +16,11 @@ end
 #cd(currentDir)
 enum=MatSim.read_Enum_header(path)  # Read the enum.out header
 println("here")
-enumStruct = MatSim.read_struct_from_enum(path,parse(Int,structNum))
-thisCrystal = MatSim.Crystal(enum,enumStruct,["Ag","Pd"])
-MatSim.writePOSCAR(thisCrystal,joinpath(currentDir,"vasp." * structNum))
-
+structNum = 35
+string(structNum)
+enumStruct = MatSim.read_struct_from_enum(path,structNum)
+print(enumStruct)
+thisCrystal = MatSim.Crystal(enum,enumStruct,["Ag","Pt"])
+MatSim.writePOSCAR(thisCrystal,joinpath(currentDir,"vasp." * string(structNum)))
+MatSim.totalEnergy(thisCrystal,LJ_average)
+display(LJ_average)

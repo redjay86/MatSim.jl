@@ -16,8 +16,8 @@
 #            nAtoms = sum([parse(Int64,x) for x in split(pos[idx + 6])])
 #            startpoint = idx + 1
 #            theend = idx + 7 + nAtoms
-#            thisCrystal = Crystal(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyFP = parse(Float64,pos[theend + 2 ]))
-#            if !isnan(thisCrystal.energyFP)
+#            thisCrystal = Crystal(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyPerAtomFP = parse(Float64,pos[theend + 2 ]))
+#            if !isnan(thisCrystal.energyPerAtomFP)
 #                push!(data,thisCrystal)
 #            end
 #        end
@@ -25,20 +25,49 @@
 #    return DataSet(data)
 #end
 
-function readVaspFolders(folder::String,file::String;poscar = "CONTCAR",outcar = "OUTCAR")
+function readVaspFolders(folder::String,outFile::String;poscar = "CONTCAR",outcar = "OUTCAR",energy = "peratom")
+    if lowercase(energy) == "fenth"
+        folders = readdir(folder,join=true)
+        loc = findall([occursin("pure",x) for x in folders])
+        pureDirs = folders[loc]
+        pures = zeros(length(pureDirs))
+        if length(pureDirs) > 0
+            species = sort!([String(split(x,"pure")[2]) for x in pureDirs],rev = true)
+            for (idx,i) in enumerate(pureDirs)
+                pure = Crystal(joinpath(i,"POSCAR"),species)
+                pure.title *= " (" * join(species, "-") * ")"
+                pure.energyPerAtomFP = getEnergy(joinpath(i,"OUTCAR"))/pure.nAtoms
+                pures[argmax(pure.nType)] = pure.energyPerAtomFP
+            end
+        else
+            error("I can't find pure calculations so I won't be able to calculate formation energies")
+        end
 
+    end
+    open(outFile, "w") do f
+        write(f,energy,"\n")
+        write(f,"#--------------------","\n")
+    end
     for obj in readdir(folder,join = true)
-
+        species = sort!(findSpecies(joinpath(obj,"POTCAR")),rev = true)
         if isdir(obj)
-            println(obj)
             poscarPresent = isfile(joinpath(obj,poscar))
             outcarPresent = isfile(joinpath(obj,outcar)) 
             if poscarPresent && outcarPresent
-                crystal = Crystal(obj,poscar,energyFP = getEnergy(joinpath(obj,outcar)))
-                writePOSCAR(crystal,joinpath(folder,file),"a")
-                open(joinpath(folder,file), "a") do f
+                crystal = Crystal(joinpath(obj,poscar),["Pt","Ag"])
+                crystal.title *= " (" * join(species, "-") * ")"
+                crystal.energyPerAtomFP = getEnergy(joinpath(obj,outcar))/crystal.nAtoms
+                writePOSCAR(crystal,joinpath(folder,outFile),"a")
+                open(joinpath(folder,outFile), "a") do f
                     write(f,"Energy:","\n")
-                    writedlm(f,crystal.energyFP)
+                    if lowercase(energy) == "peratom"
+                        writedlm(f,crystal.energyPerAtomFP)
+                    elseif lowercase(energy) == "total"
+                         writedlm(f,crystal.energyPerAtomFP * crystal.nAtoms)
+                    elseif lowercase(energy) == "fenth"
+                        MatSim.formationEnergy!(crystal,pures)  # Haven't figured out how I'm gonna get pures yet.
+                        writedlm(f,crystal.formationEnergyFP)
+                    end
                     write(f,"#--------------------","\n")
                 end
                 
@@ -83,6 +112,18 @@ function getEnergy(filePath::String)
         lines = readlines(f)
         energyLine = findall([occursin("free  energy",x) for x in lines])
         return parse(Float64,split(lines[energyLine[1]])[end-1])
+    end
+
+end
+
+
+function findSpecies(filePath::String)
+
+    open(filePath) do f
+        lines = readlines(f)
+        titleLines = findall([occursin("TITEL",x) for x in lines])
+        #println(split(lines[titleLines[1]])[4])
+        return [split(lines[x])[4] for x in titleLines]
     end
 
 end

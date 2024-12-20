@@ -27,7 +27,76 @@ function forceOnSingleParticle(positions::Array{SVector{2,Float64},1},particle::
 
 end
 
+function gradientForce(LJ,crystal,atom,loopBounds; eps = 1e-5)
+    fVec = zeros(3)
+    # Find x-component of force
+#    println("before")
+#    display(crystal.atomicBasis[atom[1]][atom[2]])
+    MatSim.DirectToCartesian!(crystal)
+    crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(eps,0,0)
+    energyOne = MatSim.totalEnergy(crystal,LJ)
+    MatSim.DirectToCartesian!(crystal)
+    crystal.atomicBasis[atom[1]][atom[2]] += SVector{3,Float64}(2 * eps,0,0)
+    energyTwo = MatSim.totalEnergy(crystal,LJ)
+    MatSim.DirectToCartesian!(crystal)
+    crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(eps,0,0)  # Put it back where it was.
+    fVec[1] = -(energyTwo - energyOne)/(2 * eps)
+#    println("energies after 1")
+#    display(energyTwo)
+#    display(energyOne)
+    # Find y-component of force
+    crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,eps,0)
+    energyOne = MatSim.totalEnergy(crystal,LJ)
+    MatSim.DirectToCartesian!(crystal)
+    crystal.atomicBasis[atom[1]][atom[2]] += SVector{3,Float64}(0,2 * eps,0)
+    energyTwo = MatSim.totalEnergy(crystal,LJ)
+    MatSim.DirectToCartesian!(crystal)
+    crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,eps,0)  # Put it back where it was.
+    fVec[2] = -(energyTwo - energyOne)/(2 * eps)
 
+ #   println("energies after 2")
+ #   display(energyTwo)
+ #   display(energyOne)
+    # Find z-component of force
+    crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,0,eps)  # Move atom downward
+    energyOne = MatSim.totalEnergy(crystal,LJ)        # Calculate energy
+    MatSim.DirectToCartesian!(crystal)
+    crystal.atomicBasis[atom[1]][atom[2]] += SVector{3,Float64}(0,0,2 * eps)  # Move atom upward
+    energyTwo = MatSim.totalEnergy(crystal,LJ)           # Calculate energy
+    MatSim.DirectToCartesian!(crystal)
+    crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,0,eps)  # Put it back where it was.
+    fVec[3] = -(energyTwo - energyOne)/(2 * eps)      # Calculate component of gradient
+ #   println("energies after 3")
+ #   display(energyTwo)
+ #   display(energyOne)
+
+    return fVec
+end
+
+function singleAtomForce(LJ::LJ,crystal::Crystal,centerAtom::SVector{2,Int64}, loopBounds::SVector{3,Int64})
+    #ljvals = zeros(3,2)  #Specific to binary material.  Needs generalized to k-nary case.
+    MatSim.CartesianToDirect!(crystal)
+
+    addVec = zeros(3)
+    indices = zeros(2)
+    fVec = SVector(0,0,0)
+    for (iNeighbor,aType) in enumerate(crystal.atomicBasis), neighboratom in aType  #Loop over the different atom types.
+            # And these three inner loops are to find all of the periodic images of a neighboring atom.
+        for i = -loopBounds[1]:loopBounds[1], j = -loopBounds[2]:loopBounds[2], k= -loopBounds[3]:loopBounds[3]
+            addVec .= (i,j,k) 
+            newAtom = neighboratom + addVec  #Periodic image of this atom
+            newCart = DirectToCartesian(crystal.latpar * crystal.lVecs,newAtom)  # Convert to cartesian coordinate system
+            r = newCart - MatSim.DirectToCartesian(crystal.latpar * crystal.lVecs,crystal.atomicBasis[centerAtom[1]][centerAtom[2]]) 
+            if norm(r) < LJ.cutoff && !isapprox(norm(r),0,atol = 1e-3)
+                println("Adding to force")
+                indices = iNeighbor < centerAtom[1] ? @SVector[iNeighbor,centerAtom[1]] : @SVector[centerAtom[1],iNeighbor]
+                fVec -=    12. * 4. * LJ.ϵ[indices[1],indices[2]] * LJ.σ[indices[1],indices[2]]^12/norm(r)^13 * r/norm(r)
+                fVec +=    6. * 4. * LJ.ϵ[indices[1],indices[2]] * LJ.σ[indices[1],indices[2]]^6/norm(r)^7 * r/norm(r)
+            end
+        end
+    end
+    return fVec
+end
 
 
 function singleAtomEnergy(LJ::LJ,crystal::Crystal,centerAtom::SVector{3,Float64}, centerType:: Integer, loopBounds::SVector{3,Int64})
@@ -100,6 +169,8 @@ function totalDistances!(crystal::Crystal,LJ::LJ)
 #    r6 = zeros(crystal.order,crystal.order)
 #    r12 = zeros(crystal.order,crystal.order)
     
+    eVals = eigvals(transpose(crystal.latpar .* crystal.lVecs) * (crystal.latpar .* crystal.lVecs))
+    maxN = LJ.cutoff/sqrt(minimum(eVals))
     
     loopBounds = SVector{3,Int64}(convert.(Int64,cld.(LJ.cutoff ,SVector{3,Float64}(norm(x) for x in eachcol(crystal.latpar * crystal.lVecs)) )))
     # The outer two loops are to loop over different centering atoms.
@@ -112,23 +183,29 @@ end
 
 function totalEnergy(crystal::Crystal,LJ::LJ)
     if !all(crystal.r6 .== 0.0)
+#        println("Doing it the easy way")
         totalEnergy = 0.0
         for i in eachindex(LJ.ϵ)
             totalEnergy += -LJ.ϵ[i] * LJ.σ[i]^6 * crystal.r6[i] + LJ.ϵ[i] * LJ.σ[i]^12 * crystal.r12[i]
         end
-#        @time "total Energy" totalEnergy = sum(-LJ.ϵ .* LJ.σ .^6 .* crystal.r6 .+ LJ.ϵ .* LJ.σ .^12 .* crystal.r12 ) 
- #       println("Doing it the easy way!")
-        return totalEnergy
+    else
+ #       println("Doing it the hard way")
+        CartesianToDirect!(crystal)
+        totalEnergy = 0.0 
+        loopBounds = SVector{3,Int64}(convert.(Int64,cld.(LJ.cutoff ,[norm(x) for x in eachcol(crystal.latpar * crystal.lVecs)] )))
+        # The outer two loops are to loop over different centering atoms.
+        for (iCenter,centerAtomType) in enumerate(crystal.atomicBasis), centerAtom in centerAtomType 
+            centerAtomC = DirectToCartesian(crystal.latpar * crystal.lVecs,centerAtom)
+            totalEnergy += singleAtomEnergy(LJ,crystal,centerAtomC,iCenter,loopBounds)    # Find the contribution to the LJ energy for this centering atom.
+        end
     end
-    CartesianToDirect!(crystal)
-    totalEnergy = 0 
-    loopBounds = SVector{3,Int64}(convert.(Int64,cld.(LJ.cutoff ,[norm(x) for x in eachcol(crystal.latpar * crystal.lVecs)] )))
-    # The outer two loops are to loop over different centering atoms.
-    for (iCenter,centerAtomType) in enumerate(crystal.atomicBasis), centerAtom in centerAtomType 
-        centerAtomC = DirectToCartesian(crystal.latpar * crystal.lVecs,centerAtom)
-        totalEnergy += singleAtomEnergy(LJ,crystal,centerAtomC,iCenter,loopBounds)    # Find the contribution to the LJ energy for this centering atom.
+
+    # Make sure I'm always returning energy per atom.
+    if lowercase(LJ.fitTo) == "total"
+        return ( (totalEnergy + LJ.offset) * LJ.stdEnergy + LJ.meanEnergy) / crystal.nAtoms
+    else
+        return (totalEnergy + LJ.offset) * LJ.stdEnergy + LJ.meanEnergy
     end
-    return totalEnergy
 end
 
 
@@ -136,11 +213,11 @@ end
 function logNormal(data::DataSet,LJ::LJ,σ::Float64)::Float64
     thesum = 0.0
     for i = 1:data.nData
-        thesum += (data.crystals[i].energyFP -totalEnergy(data.crystals[i],LJ))^2
+        thesum += (data.crystals[i].fitEnergy -totalEnergy(data.crystals[i],LJ))^2
     end
     thesum *= - 1/(2 * σ^2)
     
-#    @time "thesum" thesum =  -data.nData/2 *log(σ^2) - 1/(2 * σ^2) * sum([(i.energyFP - totalEnergy(i,LJ))^2   for i in data.crystals])
+#    @time "thesum" thesum =  -data.nData/2 *log(σ^2) - 1/(2 * σ^2) * sum([(i.energyPerAtomFP - totalEnergy(i,LJ))^2   for i in data.crystals])
     return -data.nData/2 *log(σ^2) + thesum
 
 end
@@ -150,10 +227,12 @@ function initializeLJ(settings::Dict)
     order = settings["order"]::Int64
     cutoff = settings["cutoff"]::Float64
     nInteractions = Int(order*(order + 1)/2)
+    fitTo = settings["fitTo"]::String
     #params = ones(order,order,2)
     σ = zeros(order,order)
     ϵ = zeros(order,order)
-    return LJ(order,cutoff,σ,ϵ)
+    
+    return LJ(order,cutoff,σ,ϵ,1.0,0.0,0.0,fitTo)
 end
 
 function initializeLJ(path::String)
@@ -167,24 +246,24 @@ function initializeLJ(path::String)
     # Get the dataset
     species = String[x for x in input["dataset"]["species"]]
     #species = [x for x in speciesList]
-    dataFolder = string(dirname(input["dataset"]["file"]))
-    dataFile = string(basename(input["dataset"]["file"]))
-    dset = MatSim.readStructuresIn(dataFolder,dataFile,species,overwriteLatPar = false)
-    standardize = Bool(input["dataset"]["standardize"])
+    dataFile = input["dataset"]["file"]
     offset = Float64(input["dataset"]["offset"])
-    if standardize
-        MatSim.standardizeData!(dset,offset)
-    end
+    dset = MatSim.readStructuresIn(dataFile,species,overwriteLatPar = false,offset = offset)
+    standardize = Bool(input["dataset"]["standardize"])
+    fitTo = String(input["dataset"]["fitTo"])
+    #if standardize
+    #    MatSim.standardizeData!(dset,offset)
+    #end
     # Check to make sure that the specified order matches the dataset
     order = Int(input["model"]["order"])
     if dset.crystals[1].order != order
-        println(order)
         error("Order of model not consistent with order of crystals in data set.")
     end
 
-    offset = Float64(input["dataset"]["offset"])
+    #offset = Float64(input["dataset"]["offset"])
     # Initialize the LJ model     
     modelDict = input["model"]::Dict{String,Any}
+    modelDict["fitTo"] = fitTo
     LJ_model = MatSim.initializeLJ(modelDict)#input["model"])
     # Pre-calculate the distances needed for LJ
     for crystal in dset.crystals
@@ -197,7 +276,7 @@ function initializeLJ(path::String)
     if nTraining > length(dset.crystals)
         error("Data set not big enough for $nTraining training data points")
     end
-    trainingSet, holdoutSet = MatSim.getTraining_Holdout_Sets(dset,nTraining)
+    trainingSet, holdoutSet = MatSim.getTraining_Holdout_Sets(dset,nTraining,fitTo,standardize)
 
     # Get everything needed to run Metropolis Hastings.
     metropDict = input["metrop"]::Dict{String,Any}
@@ -269,7 +348,6 @@ function initializeMetrop(metrop::Dict,LJ::LJ)
     σ_Priors = Array{Gamma{Float64},2}(undef,order,order)
     ϵ_Priors = Array{Gamma{Float64},2}(undef,order,order)
     for i in keys(priors)
-        println(i)
         if lowercase(i) != "sigma"
             σ_Priors[indexDict[i]...]= distDict[lowercase(priors[i]["epsilon"]["distribution"])](parse.(Float64,split(priors[i]["epsilon"]["parameters"]))...)
             ϵ_Priors[indexDict[i]...]= distDict[lowercase(priors[i]["sigma"]["distribution"])](parse.(Float64,split(priors[i]["sigma"]["parameters"]))...)
@@ -285,8 +363,6 @@ function initializeMetrop(metrop::Dict,LJ::LJ)
  #   println(extras)
     σ_Priors[2,1] = Gamma(10,0.5)
     ϵ_Priors[2,1] = Gamma(10,0.5)
-    display(σ_Priors)
-    println(typeof(σ_Priors))
     std_Prior = distDict[lowercase(priors["sigma"]["distribution"])](parse.(Float64,split(priors["sigma"]["parameters"]))...)
 
     
@@ -384,16 +460,32 @@ end
 
 function getSamples(metrop::LJ_metrop,data::DataSet,LJ::LJ)
     LJ_next = deepcopy(LJ)
-    
     intDict = Dict(1=>"a",2=>"b")
     #Write the header to the output file
     cDir = pwd()
     println("Opening file  ", joinpath(cDir,"draws.out"))
-    io = open(joinpath(cDir,"draws.out"),"w")
+    system = "System: " * data.title * "\n"
+    filename = "draws-LJ." * lstrip(data.title)
+    fitTo = "fitTo: " * data.fitTo * "\n"
+    io = open(joinpath(cDir,filename),"w")
+    standardized = "Standardized: " * string(data.standardized) * "\n"
+    mn = data.standardized ? "μ-energy: " * string(data.meanEnergy) * "\n" : "μ-energy: " * string(0.0) * "\n" 
+    sn = data.standardized ? "σ-energy: " * string(data.stdEnergy) * "\n" : "σ-energy: " * string(1.0) * "\n"
+    offset = data.standardized ? "offset-energy: " * string(data.offset) * "\n" : "offset-energy: " * string(0.0) * "\n"
+    cutoff = "cutoff-radius: " * string(LJ.cutoff) * "\n"
+    write(io,system)
+    write(io,fitTo)
+    write(io,standardized)
+    write(io,mn)
+    write(io,sn)
+    write(io,offset)
+    write(io,cutoff)
+    acceptPosition = mark(io)  # Mark the current position
     nInteractionTypes = Int(LJ.order * (LJ.order + 1)/2)  # How many parameters do I expect to get
     nSpaces = "%" * string(15 * (2 * nInteractionTypes + 1)- 2) * "s"  # We use 15 spaces per number so let's allocate exactly the right number of spaces for the first line.
     fstring = Printf.Format(nSpaces)
     header = Printf.format(fstring, "\n")
+#    header = ""
     for i =1:LJ.order, j = i:LJ.order
         header *= "         ϵ_" *intDict[i] * intDict[j] * "  "
     end
@@ -403,6 +495,7 @@ function getSamples(metrop::LJ_metrop,data::DataSet,LJ::LJ)
     end
     header *= "         std\n"
 #    header = @sprintf "ϵ_aa  ϵ_ab ϵ_bb σ_aa σ_ab σ_bb std\n"
+    println(header)
     write(io,header)
     #close(io)
     std_draw = metrop.std
@@ -416,7 +509,9 @@ function getSamples(metrop::LJ_metrop,data::DataSet,LJ::LJ)
             writeDraw(LJ_next,std_draw,io)
         end
     end
-    seekstart(io)
+
+    seek(io,acceptPosition)
+
     for i= 1:LJ.order, j=i:LJ.order
         printString = @sprintf "%14.2f " metrop.ϵ_accept[i,j] * 100
         write(io,printString)
