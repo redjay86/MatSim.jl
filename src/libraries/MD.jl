@@ -2,10 +2,10 @@ module MD
 
 using Random
 using LinearAlgebra
-#using Pkg
-#Pkg.add("StaticArrays")
 using StaticArrays
 using Statistics
+
+
 
 struct MD
     nParticles::Int64

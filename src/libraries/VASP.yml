@@ -1,0 +1,23 @@
+title: Cd-Al 
+path: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/training_set"
+
+INCAR:
+  PREC: HIGH
+  ISYM: 2
+  ISMEAR: 1
+  SIGMA: 0.1
+  ALGO: Normal  # Static
+  LORBIT: 10 # Static
+POTCAR:
+  path: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/POTCARS"
+  species: [Al, Cd]
+KPOINTS:
+  method: autoGR
+  settings:
+    - KPDENSITY: 10000
+      SHIFT: 0.0 0.0 0.0
+  density: 10000
+ENUM:
+  file: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/struct_enum.out"
+  structs: sequence
+  nstructs: 2-50

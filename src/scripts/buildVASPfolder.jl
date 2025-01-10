@@ -1,17 +1,24 @@
 #!/usr/bin/env julia
+
+cd("/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/mods/")
+push!(LOAD_PATH,pwd())
 using Revise
 using MatSim
+
 using StatsBase
 using YAML
 
+using enumeration
+using crystalUtils
+using vaspUtils
 cwd = pwd()
-scriptdir = @__DIR__
+cDir = @__DIR__
 
-settings = YAML.load_file(joinpath(cwd,"VASP.yml"))
+settings = YAML.load_file(joinpath(cDir,"VASP.yml"))
 kp = settings["KPOINTS"]  # KPOINTs settings
 dataPath = settings["path"] # Path where the data will be found
 enumSettings = settings["ENUM"] # Enum settings (indicates which structures should be built)
-enum=MatSim.read_Enum_header(enumSettings["file"])  # Read the enum.out header
+#enum=enumeration.read_Enum_header(enumSettings["file"])  # Read the enum.out header
 potcar = settings["POTCAR"]  # POTCAR settings
 
 # Find out how many total structures are in struct_enum.out
@@ -26,15 +33,17 @@ elseif enumSettings["structs"] == "sequence"
     structs = seq[1]:seq[2]
 end
 
+using vaspUtils
 # Build each folder.
 for i in structs
+    println("here: ",i)
     path = joinpath(dataPath,"str" * string(i))
     mkpath(path)
-    MatSim.writePOTCAR(path,settings["POTCAR"])  # Write the POTCAR file
-    MatSim.writeINCAR(path,settings["INCAR"])   # Write the INCAR file
-    enumStruct = MatSim.read_struct_from_enum(enumSettings["file"],i)
-    crystal = MatSim.Crystal(enum,enumStruct,potcar["species"])
-    MatSim.writePOSCAR(crystal,joinpath(path,"POSCAR"),)  # Write the POSCAR file.
-    MatSim.writeKPOINTS(path,kp)
+#    vaspUtils.writePOTCAR(path,settings["POTCAR"])  # Write the POTCAR file
+    vaspUtils.writeINCAR(path,settings["INCAR"])   # Write the INCAR file
+    #enumStruct = enumeration.read_struct_from_enum(enumSettings["file"],i)
+    crystal = Crystal.fromEnum(enumSettings["file"],i,potcar["species"])
+    vaspUtils.writePOSCAR(crystal,joinpath(path,"POSCAR"),)  # Write the POSCAR file.
+    vaspUtils.writeKPOINTS(path,kp)
 end
 

@@ -1,5 +1,8 @@
-#module VASP
+module vaspUtils
 
+using Printf
+using Crystal
+using DelimitedFiles
 
 
 
@@ -34,7 +37,7 @@ function readVaspFolders(folder::String,outFile::String;poscar = "CONTCAR",outca
         if length(pureDirs) > 0
             species = sort!([String(split(x,"pure")[2]) for x in pureDirs],rev = true)
             for (idx,i) in enumerate(pureDirs)
-                pure = Crystal(joinpath(i,"POSCAR"),species)
+                pure = Crystal.fromPOSCAR(joinpath(i,"POSCAR"),species)
                 pure.title *= " (" * join(species, "-") * ")"
                 pure.energyPerAtomFP = getEnergy(joinpath(i,"OUTCAR"))/pure.nAtoms
                 pures[argmax(pure.nType)] = pure.energyPerAtomFP
@@ -54,7 +57,7 @@ function readVaspFolders(folder::String,outFile::String;poscar = "CONTCAR",outca
             poscarPresent = isfile(joinpath(obj,poscar))
             outcarPresent = isfile(joinpath(obj,outcar)) 
             if poscarPresent && outcarPresent
-                crystal = Crystal(joinpath(obj,poscar),["Pt","Ag"])
+                crystal = Crystal.fromPOSCAR(joinpath(obj,poscar),["Pt","Ag"])
                 crystal.title *= " (" * join(species, "-") * ")"
                 crystal.energyPerAtomFP = getEnergy(joinpath(obj,outcar))/crystal.nAtoms
                 writePOSCAR(crystal,joinpath(folder,outFile),"a")
@@ -84,7 +87,7 @@ function readVaspFolders(folder::String,outFile::String;poscar = "CONTCAR",outca
 end
 
 
-function writePOSCAR(crystal::Crystal,fName::String,openCode::String = "w")
+function writePOSCAR(crystal::Crystal.config,fName::String,openCode::String = "w")
     open(fName,openCode) do f
         write(f,crystal.title,'\n')
         writedlm(f,crystal.latpar',' ')
@@ -134,7 +137,7 @@ function writePOTCAR(path::String,potcar::Dict)
     potcarsroot = potcar["path"]
     potcarspecies = reverse(sort(potcar["species"]))
     n = length(potcarspecies)
-    dirs = [potcarsroot * "/" * x for x in potcarspecies]
+    dirs = [potcarsroot * "/" * x * "/POTCAR" for x in potcarspecies]
         
     catCommand = `cat $dirs`
     outpath = joinpath(path,"POTCAR")
@@ -185,3 +188,5 @@ end
 #atoms = [5,8]
 #volume = 105
 #vegardsVolume(myElements,atoms,volume)
+
+end

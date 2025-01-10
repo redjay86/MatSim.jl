@@ -1,3 +1,42 @@
+module enumeration
+
+using LinearAlgebra:Diagonal,LowerTriangular
+using Printf
+#using Crystal
+#using LennardJones
+
+struct Enum
+    title:: String
+    bulk:: Bool
+    pLV:: Matrix{Float64}
+    nD:: Int64
+    dVecs:: Vector{Vector{Float64}}
+    k :: Int64
+    eps:: Float64
+
+end
+
+# Enumerated representation of a crystal
+struct EnumStruct
+    strN:: Int64
+    hnfN::Int64
+    hnf_degen:: Int64  
+    lab_degen:: Int64
+    tot_degen:: Int64
+    sizeN:: Int64
+    n:: Int64
+    pgOps:: Int64
+    SNF:: Diagonal{Int64,Vector{Int64}}
+    HNF:: LowerTriangular{Int64, Matrix{Int64}}
+    L:: Matrix{Int64}
+    labeling::String
+    arrows::String
+
+end
+
+
+
+
 function read_Enum_header(file)
 #    f = open(file,"r")
 #    lines = readlines(f)
@@ -27,63 +66,7 @@ function read_Enum_header(file)
 end
 
 
-function gss(file,model,species;readend = 100)
-#    filePath = joinpath(dirname(file), "structures.AgPt")
-#    pures = findPureEnergies(filePath)
-    pureCrystals = fccPures(species)
-    pures = []
-    for pure in pureCrystals
-        push!(pures,MatSim.totalEnergy(pure,model))
-    end
-    println(pures)
-    enum=MatSim.read_Enum_header(file)
-    cDir = pwd()
 
-    io = open(joinpath(cDir,"gss.out"),"w")
-    for (idx,line) in enumerate(eachline(file))
-        if idx - 15 > readend
-            break
-        end
-        if idx < 16 
-            continue
-        end
-
-
-
-        hnfN = parse(Int,split(line)[2])
-        hnf_degen = parse(Int,split(line)[3])
-        label_degen = parse(Int,split(line)[4])
-        total_degen = parse(Int,split(line)[5])
-        sizeN = parse(Int,split(line)[6])
-        n = parse(Int,split(line)[7])
-        pgOps = parse(Int,split(line)[8])
-        SNF = Diagonal(parse.(Int,split(line)[9:11]))
-        a = parse(Int,split(line)[12])
-        b = parse(Int,split(line)[13])
-        c = parse(Int,split(line)[14])
-        d = parse(Int,split(line)[15])
-        e = parse(Int,split(line)[16])
-        f = parse(Int,split(line)[17])
-        HNF = LowerTriangular([a 0 0
-                               b c 0 
-                               d e f])
-
-        l = parse.(Int,split(line)[18:26])
-        lTransform = hcat([l[i:i+2] for i=1:3:7]...)'
-        labeling = split(line)[27]
-        arrows = try split(line)[28] catch y repeat("0",length(labeling)) end
-        strN = idx - 15
-        eStruct =  EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
-        crystal = MatSim.Crystal(enum,eStruct,["Ag","Pt"],mink=true)
-        crystal.energyPerAtomModel = MatSim.totalEnergy(crystal,model)
-        conc = crystal.nType/crystal.nAtoms
-
-        crystal.formationEnergyModel = MatSim.formationEnergy(crystal.energyPerAtomModel,pures,conc)
-        printString = @sprintf "%5d  %8.4f %8.4f %8.4f %8.4f\n" strN conc[1] conc[2] crystal.energyPerAtomModel crystal.formationEnergyModel
-        write(io,printString)
-    end
-    close(io)
-end
 function read_struct_from_enum(file,strN)
     keepLine = 0
     for (idx,line) in enumerate(eachline(file))
@@ -138,4 +121,7 @@ function read_struct_from_enum(file,strN)
     arrows = try split(keepLine)[28] catch y repeat("0",length(labeling)) end
     return EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
 end
+
+end
+
 

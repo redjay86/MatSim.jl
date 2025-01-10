@@ -1,3 +1,21 @@
+module DataSets
+
+using Crystal
+using StatsBase
+using Printf
+#using LennardJones
+#using enumeration
+
+struct DataSet
+    title:: String
+    crystals::Vector{Crystal.config}
+    stdEnergy:: Float64
+    meanEnergy::Float64
+    offset::Float64
+    nData::Int
+    standardized::Bool
+    fitTo::String
+end
 
 #DataSet(dSet) = fromCrystals(dSet,standardize)
 
@@ -107,7 +125,7 @@ function findPureEnergies(filePath)
             continue
         end
         if occursin("#--",line)
-            thisCrystal = Crystal(cLines,["N-a", "N-a"])
+            thisCrystal = Crystal.fromPOSCAR(cLines,["N-a", "N-a"])
             energy = parse(Float64,cLines[end])
 #            if lowercase(energyType) == "peratom"
 #                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])
@@ -145,7 +163,7 @@ function readStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
     # The species list should always be in reverse alphabetical order. (All VASP calculations are performed under that convention)
     sort!(species,rev = true)
 
-    data = Vector{Crystal}()
+    data = Vector{Crystal.config}()
     cLines = Vector{String}()
     title = join(species,"-")
     counter = 0
@@ -160,12 +178,13 @@ function readStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
             continue
         end
         if occursin("#--",line)
-            thisCrystal = Crystal(cLines,species,overwriteLatPar = overwriteLatPar)
+            thisCrystal = Crystal.fromPOSCAR(cLines,species,overwriteLatPar = overwriteLatPar)
             if lowercase(energyType) == "peratom"
                 thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])
                 if foundPures
                     concentrations = thisCrystal.nType /thisCrystal.nAtoms
-                    thisCrystal.formationEnergyFP = MatSim.formationEnergy(thisCrystal.energyPerAtomFP,pures,concentrations)
+                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,pures,concentrations)
+#                    MatSim.formationEnergy!(thisCrystal,pures)
                 else
                     thisCrystal.formationEnergyFP = NaN
                 end
@@ -173,14 +192,15 @@ function readStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
                 thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])/thisCrystal.nAtoms
                 if foundPures
                     concentrations = thisCrystal.nType /thisCrystal.nAtoms
-                    thisCrystal.formationEnergyFP = MatSim.formationEnergy(thisCrystal.energyPerAtomFP,pures,concentrations)
+                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,pures,concentrations)
+#                    MatSim.formationEnergy!(thisCrystal,pures)
                 else
                     thisCrystal.formationEnergyFP = NaN
                 end
             elseif lowercase(energyType) == "fenth"
                 thisCrystal.formationEnergyFP = parse(Float64,cLines[end])
                 if foundPures
-                    MatSim.totalEnergyFromFormationEnergy!(thisCrystal,pures)
+                    Crystal.totalEnergyFromFormationEnergy!(thisCrystal,pures)
                 else
                     thisCrystal.energyPerAtomFP = NaN
                 end
@@ -247,3 +267,5 @@ function writeStructuresIn(path::String, structures::DataSet)
 end
 
 
+
+end

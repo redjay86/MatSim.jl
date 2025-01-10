@@ -1,15 +1,33 @@
+module nSampling
+
+using Crystal
+using LennardJones
+using DataSets:DataSet
+using StaticArrays
+using LinearAlgebra
+using Distributions
+
+struct NS
+    K:: Int
+    Kr:: Int
+    L:: Int
+    eps:: Float64
+    method:: String
+    configs::Vector{Crystal.config}
+end
+
 
 function initializeSimulation(inputs,species,model)
     parsedlVecs = [parse.(Float64,split(x[1])) for x in inputs["lVecs"]]
     lVecs = hcat(parsedlVecs...)
-    configs = [buildRandom(inputs["lPar"],lVecs,inputs["nAtoms"],inputs["minSep"],species) for i in 1:inputs["K"]]
+    configs = [Crystal.buildRandom(inputs["lPar"],lVecs,inputs["nAtoms"],inputs["minSep"],species) for i in 1:inputs["K"]]
     for i in configs
-        i.energyPerAtomModel = MatSim.totalEnergy(i,model)
+        i.energyPerAtomModel = LennardJones.totalEnergy(i,model)
     end
     return NS(inputs["K"],inputs["Kr"],inputs["L"],inputs["eps"],inputs["walkMethod"],configs)
 end
 
-function nestedSampling(NS::NS,LJ::LJ)
+function nestedSampling(NS::NS,LJ::LennardJones.LJ)
 
     V = (NS.K - NS.Kr + 1)/(NS.K + 1)
 
@@ -43,7 +61,7 @@ end
 
 # Perform a random walk on a single configuration subject to the constraint that the total energy be less than the cutoff
 # Not walking using the force vector (GMC), just random walks.  This may not work well for some systems.
-function randomWalk!(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
+function randomWalk!(config::Crystal.config,model, energyCutoff::Float64, nWalk::Int64)
     # Loop over the number of random walks to take.
     for iWalk in 1:nWalk
         #@printf "Step in random walk %3i\n" iWalk
@@ -53,7 +71,7 @@ function randomWalk!(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
             # Get a random displacement vector
             randDisplace = (rand(3).-0.5)*0.1
             config.atomicBasis[iType][iAtom] += randDisplace
-            newEnergy = totalEnergy(config,model) # Want total energies for NS
+            newEnergy = LennardJones.totalEnergy(config,model) # Want total energies for NS
             # If the move resulted in a higher energy, undo the move and go to the next atom.
             if newEnergy > energyCutoff
                 #@printf "Rejected------------------------------------\n"
@@ -71,10 +89,10 @@ function randomWalk!(config::Crystal,model, energyCutoff::Float64, nWalk::Int64)
 end
 
 # Galilean Monte Carlo
- function GMC(config::Crystal,nWalk::Int64,model)
+ function GMC(config::Crystal.config,nWalk::Int64,model)
     initialConfig = deepcopy(config)
-    oldEnergy = MatSim.totalEnergy(config,model)
-    MatSim.DirectToCartesian!(config)
+    oldEnergy = LennardJones.totalEnergy(config,model)
+    Crystal.DirectToCartesian!(config)
     println("energy at start")
     println(oldEnergy)
     newEnergy = 1e6
@@ -95,15 +113,15 @@ end
         println("after movement")
         println(config.coordSys)
         display(config.atomicBasis[1][1])
-        newEnergy = MatSim.totalEnergy(config,model)  # Calculate the new energies
-        MatSim.DirectToCartesian!(config)
+        newEnergy = LennardJones.totalEnergy(config,model)  # Calculate the new energies
+        Crystal.DirectToCartesian!(config)
         #println("new locations: ")
         #display(config.atomicBasis)
         println("newEnergy: ", newEnergy)
         if newEnergy > oldEnergy  # If we went uphill, we need to try and re-direct the velocites in the direction of the net force.
             println("Redirecting....----------------------------------->")
             for (iType,aType) in enumerate(config.atomicBasis), (iAtom,atom) in enumerate(aType)  #Loop over the different atom types.
-                forces[iType][iAtom] = MatSim.gradientForce(model,config,@SVector[iType,iAtom],@SVector[2,2,2])
+                forces[iType][iAtom] = LennardJones.gradientForce(model,config,@SVector[iType,iAtom],@SVector[2,2,2])
             end
             nHat = [x ./ norm.(x) for x in forces]
 #            println("velocity")
@@ -130,3 +148,4 @@ end
 
 
 
+end

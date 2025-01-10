@@ -1,7 +1,7 @@
 
 dataset:
   title: Ag-Pt
-  file: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/structures.AgPt"
+  file: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/mods/structures.AgPt"
   species: [Ag, Pt]
   nTraining: 300
   fitTo: peratom
@@ -15,7 +15,7 @@ model:
 
 metrop:
   nDraws: 5000
-  nBurnin: 500
+  nBurnin: 2000
   proposal: Gamma
   Priors:
     aa:

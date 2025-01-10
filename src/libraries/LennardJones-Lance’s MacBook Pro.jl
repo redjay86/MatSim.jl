@@ -1,3 +1,69 @@
+module LennardJones
+
+using Distributions
+using StaticArrays
+using Printf
+using Plots
+using DataSets
+using crystalUtils
+using LinearAlgebra
+using PlotsMH
+using YAML
+
+
+# The Lennard-Jones potential
+struct LJ{T}
+    order:: Int64
+  #  params:: Array{Float64,3}
+    cutoff:: Float64
+
+    # Replace params above.
+    σ:: T#UpperTriangular{Float64, Matrix{Float64}}
+    ϵ:: T#UpperTriangular{Float64, Matrix{Float64}}
+    # Keep track of the standardization parameters so I can calculate the energy accurately.
+    stdEnergy:: Float64  
+    meanEnergy:: Float64
+    offset:: Float64
+    fitTo::String
+
+end
+
+
+struct LJ_metrop{D<:Distribution{Univariate,Continuous}}
+    nDraws:: Int64
+    nBurnIn:: Int64
+
+    # Acceptance rates for all of the parameters
+    ϵ_accept:: Array{Float64, 2}
+    σ_accept:: Array{Float64, 2}
+    std_accept:: Vector{Float64}
+    
+    # Prior distributions
+    ϵ_Priors:: Array{D,2}#Vector{Distribution}
+    σ_Priors:: Array{D,2}
+    std_Prior:: D
+
+    # Sigmas on proposal distributions
+    ϵ_candSigs:: Array{Float64, 2}
+    σ_candSigs:: Array{Float64, 2}
+    std_candSig:: Float64
+
+    # Initial guess
+    std:: Float64
+
+
+    # Proposal distribution
+#    proposal:: F
+
+    # Posterior
+#    logpost:: G
+end
+
+
+
+#currentDir = abspath(@__DIR__)
+#libPath = relpath(joinpath(currentDir,"libraries"))
+#include(abspath(currentDir,"plotting.jl"))
 
 
 function forceOnSingleParticle(positions::Array{SVector{2,Float64},1},particle::SVector{2,Float64},boxSize::Float64):: SVector{2,Float64}
@@ -32,13 +98,13 @@ function gradientForce(LJ,crystal,atom,loopBounds; eps = 1e-5)
     # Find x-component of force
 #    println("before")
 #    display(crystal.atomicBasis[atom[1]][atom[2]])
-    MatSim.DirectToCartesian!(crystal)
+    crystalUtils.DirectToCartesian!(crystal)
     crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(eps,0,0)
-    energyOne = MatSim.totalEnergy(crystal,LJ)
-    MatSim.DirectToCartesian!(crystal)
+    energyOne = totalEnergy(crystal,LJ)
+    crystalUtils.DirectToCartesian!(crystal)
     crystal.atomicBasis[atom[1]][atom[2]] += SVector{3,Float64}(2 * eps,0,0)
-    energyTwo = MatSim.totalEnergy(crystal,LJ)
-    MatSim.DirectToCartesian!(crystal)
+    energyTwo = totalEnergy(crystal,LJ)
+    crystalUtils.DirectToCartesian!(crystal)
     crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(eps,0,0)  # Put it back where it was.
     fVec[1] = -(energyTwo - energyOne)/(2 * eps)
 #    println("energies after 1")
@@ -46,11 +112,11 @@ function gradientForce(LJ,crystal,atom,loopBounds; eps = 1e-5)
 #    display(energyOne)
     # Find y-component of force
     crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,eps,0)
-    energyOne = MatSim.totalEnergy(crystal,LJ)
-    MatSim.DirectToCartesian!(crystal)
+    energyOne = totalEnergy(crystal,LJ)
+    crystalUtils.DirectToCartesian!(crystal)
     crystal.atomicBasis[atom[1]][atom[2]] += SVector{3,Float64}(0,2 * eps,0)
-    energyTwo = MatSim.totalEnergy(crystal,LJ)
-    MatSim.DirectToCartesian!(crystal)
+    energyTwo = totalEnergy(crystal,LJ)
+    crystalUtils.DirectToCartesian!(crystal)
     crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,eps,0)  # Put it back where it was.
     fVec[2] = -(energyTwo - energyOne)/(2 * eps)
 
@@ -59,11 +125,11 @@ function gradientForce(LJ,crystal,atom,loopBounds; eps = 1e-5)
  #   display(energyOne)
     # Find z-component of force
     crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,0,eps)  # Move atom downward
-    energyOne = MatSim.totalEnergy(crystal,LJ)        # Calculate energy
-    MatSim.DirectToCartesian!(crystal)
+    energyOne = totalEnergy(crystal,LJ)        # Calculate energy
+    crystalUtils.DirectToCartesian!(crystal)
     crystal.atomicBasis[atom[1]][atom[2]] += SVector{3,Float64}(0,0,2 * eps)  # Move atom upward
-    energyTwo = MatSim.totalEnergy(crystal,LJ)           # Calculate energy
-    MatSim.DirectToCartesian!(crystal)
+    energyTwo = totalEnergy(crystal,LJ)           # Calculate energy
+    crystalUtils.DirectToCartesian!(crystal)
     crystal.atomicBasis[atom[1]][atom[2]] -= SVector{3,Float64}(0,0,eps)  # Put it back where it was.
     fVec[3] = -(energyTwo - energyOne)/(2 * eps)      # Calculate component of gradient
  #   println("energies after 3")
@@ -75,7 +141,7 @@ end
 
 function singleAtomForce(LJ::LJ,crystal::Crystal,centerAtom::SVector{2,Int64}, loopBounds::SVector{3,Int64})
     #ljvals = zeros(3,2)  #Specific to binary material.  Needs generalized to k-nary case.
-    MatSim.CartesianToDirect!(crystal)
+    crystalUtils.CartesianToDirect!(crystal)
 
     addVec = zeros(3)
     indices = zeros(2)
@@ -86,7 +152,7 @@ function singleAtomForce(LJ::LJ,crystal::Crystal,centerAtom::SVector{2,Int64}, l
             addVec .= (i,j,k) 
             newAtom = neighboratom + addVec  #Periodic image of this atom
             newCart = DirectToCartesian(crystal.latpar * crystal.lVecs,newAtom)  # Convert to cartesian coordinate system
-            r = newCart - MatSim.DirectToCartesian(crystal.latpar * crystal.lVecs,crystal.atomicBasis[centerAtom[1]][centerAtom[2]]) 
+            r = newCart - crystalUtils.DirectToCartesian(crystal.latpar * crystal.lVecs,crystal.atomicBasis[centerAtom[1]][centerAtom[2]]) 
             if norm(r) < LJ.cutoff && !isapprox(norm(r),0,atol = 1e-3)
                 println("Adding to force")
                 indices = iNeighbor < centerAtom[1] ? @SVector[iNeighbor,centerAtom[1]] : @SVector[centerAtom[1],iNeighbor]
@@ -138,7 +204,7 @@ function singleAtomDistances!(crystal::Crystal,LJ::LJ,centerAtom::SVector{3,Floa
             # And these three inner loops are to find all of the periodic images of a neighboring atom.
         for i = -loopBounds[1]:loopBounds[1], j = -loopBounds[2]:loopBounds[2], k= -loopBounds[3]:loopBounds[3]
             newAtom = neighboratom + @SVector[i,j,k]
-            newCart = DirectToCartesian(crystal.latpar * crystal.lVecs,newAtom)
+            newCart = crystalUtils.DirectToCartesian(crystal.latpar * crystal.lVecs,newAtom)
             r = norm(newCart - centerAtom) 
             if r < LJ.cutoff && !isapprox(r,0.0,atol = 1e-3)
                 #If the neighbor atom is inside the unit cell, then its going to be
@@ -165,7 +231,7 @@ function singleAtomDistances!(crystal::Crystal,LJ::LJ,centerAtom::SVector{3,Floa
 end
 
 function totalDistances!(crystal::Crystal,LJ::LJ)
-    CartesianToDirect!(crystal)
+    crystalUtils.CartesianToDirect!(crystal)
 #    r6 = zeros(crystal.order,crystal.order)
 #    r12 = zeros(crystal.order,crystal.order)
     
@@ -175,7 +241,7 @@ function totalDistances!(crystal::Crystal,LJ::LJ)
     loopBounds = SVector{3,Int64}(convert.(Int64,cld.(LJ.cutoff ,SVector{3,Float64}(norm(x) for x in eachcol(crystal.latpar * crystal.lVecs)) )))
     # The outer two loops are to loop over different centering atoms.
     for (iCenter,centerAtomType) in enumerate(crystal.atomicBasis), centerAtom in centerAtomType 
-        centerAtomC = DirectToCartesian(crystal.latpar * crystal.lVecs,centerAtom)
+        centerAtomC = crystalUtils.DirectToCartesian(crystal.latpar * crystal.lVecs,centerAtom)
         singleAtomDistances!(crystal,LJ,centerAtomC,iCenter,loopBounds)    # Find the contribution to the LJ energy for this centering atom.
         
     end
@@ -248,7 +314,7 @@ function initializeLJ(path::String)
     #species = [x for x in speciesList]
     dataFile = input["dataset"]["file"]
     offset = Float64(input["dataset"]["offset"])
-    dset = MatSim.readStructuresIn(dataFile,species,overwriteLatPar = false,offset = offset)
+    dset = DataSets.readStructuresIn(dataFile,species,overwriteLatPar = false,offset = offset)
     standardize = Bool(input["dataset"]["standardize"])
     fitTo = String(input["dataset"]["fitTo"])
     #if standardize
@@ -264,11 +330,11 @@ function initializeLJ(path::String)
     # Initialize the LJ model     
     modelDict = input["model"]::Dict{String,Any}
     modelDict["fitTo"] = fitTo
-    LJ_model = MatSim.initializeLJ(modelDict)#input["model"])
+    LJ_model = initializeLJ(modelDict)#input["model"])
     # Pre-calculate the distances needed for LJ
     for crystal in dset.crystals
 #        MatSim.totalDistances!(crystal,LJ_model)
-        MatSim.totalDistances!(crystal,LJ_model)
+        totalDistances!(crystal,LJ_model)
     end
     # Split data set into training and holdout sets
     nTraining = Int(input["dataset"]["nTraining"])
@@ -276,7 +342,7 @@ function initializeLJ(path::String)
     if nTraining > length(dset.crystals)
         error("Data set not big enough for $nTraining training data points")
     end
-    trainingSet, holdoutSet = MatSim.getTraining_Holdout_Sets(dset,nTraining,fitTo,standardize)
+    trainingSet, holdoutSet = DataSets.getTraining_Holdout_Sets(dset,nTraining,fitTo,standardize)
 
     # Get everything needed to run Metropolis Hastings.
     metropDict = input["metrop"]::Dict{String,Any}
@@ -287,7 +353,7 @@ end
 function logPost(data,model,metrop,σ)::Float64
     # return 3.0
 #    thesum = 0.0
-    thesum = MatSim.logNormal(data,model,σ)  + logpdf(metrop.std_Prior,σ)
+    thesum = logNormal(data,model,σ)  + logpdf(metrop.std_Prior,σ)
     for i= 1:model.order, j= i:model.order
         thesum += logpdf(metrop.σ_Priors[i,j],model.σ[i,j])
         thesum += logpdf(metrop.ϵ_Priors[i,j],model.ϵ[i,j])
@@ -550,3 +616,6 @@ function writeDraw(LJ::LJ,std_draw,file)
     write(file,printString)
 end
 
+
+
+end
