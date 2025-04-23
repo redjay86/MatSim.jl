@@ -1,15 +1,15 @@
 #!/usr/bin/env julia
 
-cd("/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/mods/")
+cd("/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/libraries/")
 push!(LOAD_PATH,pwd())
 using Revise
-using MatSim
+#using MatSim
 
 using StatsBase
 using YAML
 
 using enumeration
-using crystalUtils
+using Crystal
 using vaspUtils
 cwd = pwd()
 cDir = @__DIR__
@@ -33,7 +33,6 @@ elseif enumSettings["structs"] == "sequence"
     structs = seq[1]:seq[2]
 end
 
-using vaspUtils
 # Build each folder.
 for i in structs
     println("here: ",i)

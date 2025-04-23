@@ -22,7 +22,7 @@ function σ_hists(filePath)
     nDraws = countlines(filePath) - 8
     order = convert(Int64,ceil(sqrt((size(data)[2] - 1)/2)))
     nInteractionTypes = sum(1:order)
-    model = LennardJones.LJ(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy)
+    model = LennardJones.model(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy)
 
     σ_draws = zeros(nDraws,order,order)
     aRates = zeros(order,order)
@@ -64,7 +64,7 @@ function ϵ_hists(filePath)
     nDraws = countlines(filePath) - 9
     order = convert(Int64,ceil(sqrt((size(data)[2] - 1)/2)))
     nInteractionTypes = sum(1:order)
-    model = LennardJones.LJ(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy)
+    model = LennardJones.model(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy)
 
     ϵ_draws = zeros(nDraws,order,order)
     aRates = zeros(order,order)
@@ -114,7 +114,7 @@ function std_hist(filePath)
     nDraws = countlines(filePath) - 9
     order = convert(Int64,ceil(sqrt((size(data)[2] - 1)/2)))
     nInteractionTypes = sum(1:order)
-    model = LennardJones.LJ(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
+    model = LennardJones.model(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
 
     std_draws = convert.(Float64,data[:,end])
     
@@ -163,7 +163,7 @@ function LJAverages(filePath)
         end
     end
 
-    return LennardJones.LJ(order, cutoff,σ_mean,ϵ_mean,sigmaEnergy,muEnergy,offsetEnergy,fitTo)
+    return LennardJones.model(order, cutoff,σ_mean,ϵ_mean,sigmaEnergy,muEnergy,offsetEnergy,fitTo)
 end
 
 function readHeader(filePath)
@@ -188,7 +188,7 @@ function predPlot(filePath, holdoutSet::DataSet)
     nDraws = countlines(filePath) - 9
     order = convert(Int64,ceil(sqrt((size(data)[2] - 1)/2)))
     nInteractionTypes = sum(1:order)
-    model = LennardJones.LJ(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
+    model = LennardJones.model(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
 
     ϵ_draws = zeros(nDraws,order,order)
     σ_draws = zeros(nDraws,order,order)
@@ -256,7 +256,7 @@ function tracePlots(filePath)
     nDraws = countlines(filePath) - 9
     order = convert(Int64,ceil(sqrt((size(data)[2] - 1)/2)))
     nInteractionTypes = sum(1:order)
-    model = LennardJones.LJ(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
+    model = LennardJones.model(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
 
     ϵ_draws = zeros(nDraws,order,order)
     σ_draws = zeros(nDraws,order,order)
@@ -292,7 +292,7 @@ function hists2d(filePath,type; ar = 1.0)
     nDraws = countlines(filePath) - 9
     order = convert(Int64,ceil(sqrt((size(data)[2] - 1)/2)))
     nInteractionTypes = sum(1:order)
-    model = LennardJones.LJ(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
+    model = LennardJones.model(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
 
     ϵ_draws = zeros(nDraws,order,order)
     σ_draws = zeros(nDraws,order,order)

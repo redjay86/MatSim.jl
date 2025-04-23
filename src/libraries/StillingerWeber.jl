@@ -1,61 +1,7 @@
 module StillingerWeber
 
-using crystalUtils:Crystal
-
-struct Pair
-    atomOne :: Vector{Float64}
-    atomTwo :: Vector{Float64}
-    r :: Float64
-    types :: Vector{Int64}
-end
-
-struct Triplet
-    centerAtom:: Vector{Float64}
-    atomTwo:: Vector{Float64}
-    atomThree:: Vector{Float64}
-    r1:: Float64
-    r2:: Float64
-    cosθ:: Float64
-    types:: Vector{Int64}
-
-end
-
-struct SW #<: energyModel
-    order:: Int
-    A::Array{Float64, 3}
-    B::Array{Float64, 3}
-    p::Array{Float64, 3}
-    q::Array{Float64, 3}
-    δ::Array{Float64, 3}
-    a::Array{Float64, 3}
-    b::Array{Float64, 3}
-    λ::Array{Float64, 3}
-    γ::Array{Float64,3}
-    cutoff:: Float64
-end
-
-
-struct SW_metrop
-    nDraws:: Int
-    nBurnIn:: Int
-    pairParams_draws:: Array{Float64,4}
-    tripletParams_draws:: Array{Float64,4}
-    σ_draws:: Vector{Float64}
-    candSig_pairParams:: Array{Float64,3}
-    candSig_tripletParams:: Array{Float64,3}
-    candSig_σ:: Float64
-    pairParams_guess:: Array{Float64,3}
-    tripletParams_guess:: Array{Float64,3}
-    σ_guess:: Float64
-    pairParams_accept:: Array{Float64,3}
-    tripletParams_accept:: Array{Float64,3}
-    σ_accept:: Vector{Float64}
-    proposal:: Function
-    logpost:: Function
-end
-
-#include("/Users/legoses/OneDrive - BYU-Idaho/codes/Crystal.jl")
-#using .CrystalMethods
+include("/Users/legoses/OneDrive - BYU-Idaho/codes/Crystal.jl")
+using .CrystalMethods
 
 
 function isEquivalentAtom(atomOne,atomTwo)  # Atoms are assumed to be in direct coordinates.
@@ -112,7 +58,7 @@ end
 
 
 # Calculates sum of all pair energies in a crystal.
-function pairEnergy(crystal::Crystal, params, atomOne, typeTwo, radius)
+function pairEnergy(crystal::crystal, params, atomOne, typeTwo, radius)
     convertToDirect!(crystal)
     atom = convertToCartesian(crystal.lVecs,crystal.atomicBasis[atomOne[1]][atomOne[2]])
     pairE = 0.0
@@ -131,7 +77,7 @@ function pairEnergy(crystal::Crystal, params, atomOne, typeTwo, radius)
 
 end
 
-function singleAtomEnergy(crystal::Crystal,atom,cutoffRadius,model)
+function singleAtomEnergy(crystal::crystal,atom,cutoffRadius,model)
 
     pairE = 0.0
     threeBodyE = 0.0
@@ -143,7 +89,7 @@ function singleAtomEnergy(crystal::Crystal,atom,cutoffRadius,model)
     return pairE/2.0 + threeBodyE
 end
 
-function totalEnergy(crystal::Crystal,cutoffRadius,model)
+function totalEnergy(crystal::crystal,cutoffRadius,model)
     
     totalEnergy = 0
     for (i,atomType) in enumerate(crystal.atomicBasis)
@@ -160,7 +106,7 @@ function totalEnergy(crystal::Crystal,cutoffRadius,model)
 end
 
 
-function threeBodyEnergy(crystal::Crystal, params,atomOne, types, radius,allTouches = false)
+function threeBodyEnergy(crystal::crystal, params,atomOne, types, radius,allTouches = false)
     convertToDirect!(crystal)  # Put all of the basis vectors in direct coordinates
     atomOneC = convertToCartesian(crystal.lVecs,crystal.atomicBasis[atomOne[1]][atomOne[2]])  # Convert the atom of interest into cartesian coordinates
     atomTwoC = Float64[0,0,0]

@@ -17,7 +17,7 @@ struct NS
 end
 
 
-function initializeSimulation(inputs,species,model)
+function initialize(inputs,species,model)
     parsedlVecs = [parse.(Float64,split(x[1])) for x in inputs["lVecs"]]
     lVecs = hcat(parsedlVecs...)
     configs = [Crystal.buildRandom(inputs["lPar"],lVecs,inputs["nAtoms"],inputs["minSep"],species) for i in 1:inputs["K"]]
@@ -27,7 +27,7 @@ function initializeSimulation(inputs,species,model)
     return NS(inputs["K"],inputs["Kr"],inputs["L"],inputs["eps"],inputs["walkMethod"],configs)
 end
 
-function nestedSampling(NS::NS,LJ::LennardJones.LJ)
+function simulate(NS::NS,LJ::LennardJones.model)
 
     V = (NS.K - NS.Kr + 1)/(NS.K + 1)
 

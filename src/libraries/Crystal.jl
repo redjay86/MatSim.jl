@@ -1,4 +1,4 @@
-module Crystal
+ module Crystal
 
 using StaticArrays
 using enumeration
@@ -67,8 +67,8 @@ element_volume =Dict("H"=>37.2958,"He"=>32.1789,"Li"=>21.2543,"Be"=>8.49323,"B"=
 """
 #function fromEnum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};mink=true)
 function fromEnum(file::String,strN::Int64,species:: Vector{String};mink=true)
-    enum = enumeration.read_Enum_header(file) 
-    enumStruct = enumeration.read_struct_from_enum(file,strN)
+    enum = enumeration.read_header(file) 
+    enumStruct = enumeration.read_struct(file,strN)
 
     cardinalDirections = Float64[0 0 0
                           1 0 0

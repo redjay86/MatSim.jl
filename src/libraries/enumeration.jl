@@ -5,7 +5,7 @@ using Printf
 #using Crystal
 #using LennardJones
 
-struct Enum
+struct parent
     title:: String
     bulk:: Bool
     pLV:: Matrix{Float64}
@@ -16,8 +16,8 @@ struct Enum
 
 end
 
-# Enumerated representation of a crystal
-struct EnumStruct
+# deriverated representation of a crystal
+struct deriv
     strN:: Int64
     hnfN::Int64
     hnf_degen:: Int64  
@@ -37,7 +37,7 @@ end
 
 
 
-function read_Enum_header(file)
+function read_header(file)
 #    f = open(file,"r")
 #    lines = readlines(f)
 #    close(f)
@@ -61,13 +61,13 @@ function read_Enum_header(file)
     k = parse(Int,rstrip(split(lines[7 + nD],"-")[1]))
     eps = parse(Float64,rstrip(split(lines[9 + nD])[1]))
 
-    return Enum(title,bulk,pLattice,nD,dVecs,k,eps)
+    return parent(title,bulk,pLattice,nD,dVecs,k,eps)
 
 end
 
 
 
-function read_struct_from_enum(file,strN)
+function read_struct(file,strN)
     keepLine = 0
     for (idx,line) in enumerate(eachline(file))
         if idx > 15 && startswith(lstrip(line),string(strN))
@@ -119,7 +119,7 @@ function read_struct_from_enum(file,strN)
     lTransform = hcat([l[i:i+2] for i=1:3:7]...)'
     labeling = split(keepLine)[27]
     arrows = try split(keepLine)[28] catch y repeat("0",length(labeling)) end
-    return EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
+    return deriv(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
 end
 
 end

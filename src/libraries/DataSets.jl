@@ -151,7 +151,7 @@ function findPureEnergies(filePath)
     end
     return pures
 end
-function readStructuresIn(filePath,species::Vector{String};overwriteLatPar = false,offset = 0.0)
+function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = false,offset = 0.0)
     # Get the energies of the pure substances first so we can calculate formation energies
     pures = findPureEnergies(filePath)
     foundPures = true

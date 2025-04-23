@@ -15,12 +15,12 @@ using Distributions
 using DelimitedFiles
 using YAML
 using Plots
-using Combinatorics
+#using Combinatorics
 # Get the types needed (MatTypes.jl in modules folder)
 include(abspath(typePath,"MatTypes.jl"))
 
 # Add all things that modify/handle crystal structures (CrystalUtils.jl in modules folder)
-include(abspath(libPath,"utils.jl"))   # Working with Crystal structures explicitly
+include(abspath(libPath,"crystalUtils.jl"))   # Working with Crystal structures explicitly
 include(abspath(libPath,"enumeration.jl")) # Working with enumeration files to generate crystal structures or set of crystals.
 include(abspath(libPath,"structuresin.jl"))  # Reading and writing dataset summary files (called structures.in)
 ``
