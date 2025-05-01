@@ -3,6 +3,8 @@ module DataSets
 using Crystal
 using StatsBase
 using Printf
+#using LazySets
+using QHull
 #using LennardJones
 #using enumeration
 
@@ -18,6 +20,46 @@ struct DataSet
 end
 
 #DataSet(dSet) = fromCrystals(dSet,standardize)
+
+function getConvexHull(file::String)
+
+    nLines = countlines(file)  # Count the number of lines in the file.
+    data = zeros(nLines,2)
+    foundPureA = false
+    foundPureB = false
+    for (idx,line) in enumerate(eachline(file))  # Loop over each line in the file.
+        concs = parse.(Float64,split(line)[2:3])  # Get the concentrations
+        if isapprox(concs,[0.0,1.0])
+            foundPureA = true
+        elseif isapprox(concs,[1.0,0.0])
+            foundPureB = true
+        end
+        data[idx,:] = parse.(Float64,split(line)[2:3:5])  # Get the second (concentration) and fifth (formation energy) entries in the file.
+    #    push!(data,parse.(Float64,split(line)[2:3:5]))  # Get the second (concentration) and fifth (formation energy) entries in the file.
+    end
+
+    if !foundPureA
+        data = vcat(data,[0.0 0.0])  # Add the pure A point if it is not present.
+    end
+    
+    if !foundPureA
+        data = vcat(data,[1.0 0.0])  # Add the pure A point if it is not present.
+    end
+    hull = QHull.chull(data)  # Find the convex hull of the data points.
+    positiveRemoved = zeros(length(hull.vertices),2)  #Initialize an empty vector to hold the points that are below the zero formation energy line.
+    counter = 1
+    for (idx,value) in enumerate(hull.vertices) # Loop over the hull and only keep the points that are below the zero formation energy line.
+        println(value)
+        println(hull.points[value])
+        if hull.points[value,2] <= 0.0 
+            positiveRemoved[counter,:] = hull.points[value,:]  # Store the points that are below the zero formation energy line.
+            counter += 1
+        end
+    end
+    perms = sortperm(positiveRemoved[:,1])  # Sort the points by concentration.
+    positiveRemoved = positiveRemoved[perms,:]  # Reorder the points by concentration.
+    return unique(positiveRemoved,dims =1)  # Since I started with a matrix of zeros and then removed points, there may be unnecessary zeros remaining in the array. Remove them.
+end
 
 function fromdSet(dSet,standardize,fitTo)
     if standardize
@@ -64,7 +106,7 @@ function fromdSet(dSet,standardize,fitTo)
 end
 function getTraining_Holdout_Sets(dset::DataSet,nStructures,fitTo,standardize)
 
-    training = sample(1:length(dset.crystals),nStructures,replace = false)
+    training = StatsBase.sample(1:length(dset.crystals),nStructures,replace = false)
     holdout = setdiff(1:length(dset.crystals),training)
 
     if lowercase(fitTo) == "peratom"
@@ -112,7 +154,7 @@ function findPureEnergies(filePath)
     end
     println("order")
     println(order)
-    pures = zeros(order)
+    pures = Vector{Crystal.config}(undef,order)  # Initialize a vector to hold the pure substances.
     cLines = Vector{String}()
     counter = 0
     energyType = "peratom"
@@ -126,21 +168,18 @@ function findPureEnergies(filePath)
         end
         if occursin("#--",line)
             thisCrystal = Crystal.fromPOSCAR(cLines,["N-a", "N-a"])
-            energy = parse(Float64,cLines[end])
-#            if lowercase(energyType) == "peratom"
-#                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])
-#                MatSim.formationEnergy!(thisCrystal,pures)
-#            elseif lowercase(energyType) == "total"
-#                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])/thisCrystal.nAtoms
-#                MatSim.formationEnergy!(thisCrystal,pures)
-#            elseif lowercase(energyType) == "fenth"
-#                thisCrystal.formationEnergyFP = parse(Float64,cLines[end])
-#                MatSim.totalEnergyFromFormationEnergy!(thisCrystal,pures)
-#            else 
-#                error("Can't recognize the first line of structures.in")
-#            end
-            if thisCrystal.nAtoms == 1
-                pures[argmax(thisCrystal.nType)] = energy
+#            energy = parse(Float64,cLines[end])
+            if lowercase(energyType) == "peratom"
+                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])
+            elseif lowercase(energyType) == "total"
+                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])/thisCrystal.nAtoms
+            elseif lowercase(energyType) == "fenth"
+                thisCrystal.formationEnergyFP = parse(Float64,cLines[end])
+            else 
+                error("Can't recognize the first line of structures.in")
+            end
+            if count(!iszero,thisCrystal.nType) == 1  # If there is only one nonzero entry in the nType vector, it's a pure configuration.
+                pures[argmax(thisCrystal.nType)] = thisCrystal
             end
             cLines = Vector{String}()
             counter = 0
@@ -182,8 +221,10 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
             if lowercase(energyType) == "peratom"
                 thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])
                 if foundPures
+                    println("calculating formation energy!")
+                    println(thisCrystal.formationEnergyFP)
                     concentrations = thisCrystal.nType /thisCrystal.nAtoms
-                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,pures,concentrations)
+                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,[x.energyPerAtomFP/x.nAtoms for x in pures],concentrations)
 #                    MatSim.formationEnergy!(thisCrystal,pures)
                 else
                     thisCrystal.formationEnergyFP = NaN
@@ -192,7 +233,7 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
                 thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])/thisCrystal.nAtoms
                 if foundPures
                     concentrations = thisCrystal.nType /thisCrystal.nAtoms
-                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,pures,concentrations)
+                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,[x.energyPerAtomFP/x.nAtoms for x in pures],concentrations)
 #                    MatSim.formationEnergy!(thisCrystal,pures)
                 else
                     thisCrystal.formationEnergyFP = NaN
@@ -200,7 +241,7 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
             elseif lowercase(energyType) == "fenth"
                 thisCrystal.formationEnergyFP = parse(Float64,cLines[end])
                 if foundPures
-                    Crystal.totalEnergyFromFormationEnergy!(thisCrystal,pures)
+                    Crystal.totalEnergyFromFormationEnergy!(thisCrystal,[x.energyPerAtomFP/x.nAtoms for x in pures])
                 else
                     thisCrystal.energyPerAtomFP = NaN
                 end

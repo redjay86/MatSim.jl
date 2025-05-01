@@ -4,7 +4,7 @@ dataset:
   file: "/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/structures.AgPt"
   species: [Ag, Pt]
   nTraining: 300
-  fitTo: peratom
+  fitTo: total
   standardize: true
   offset: 1.2
 
@@ -14,8 +14,8 @@ model:
   order: 2
 
 metrop:
-  nDraws: 5000
-  nBurnin: 500
+  nDraws: 100000
+  nBurnin: 1000
   proposal: Gamma
   Priors:
     aa:

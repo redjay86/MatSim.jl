@@ -17,6 +17,23 @@ struct NS
 end
 
 
+function randomShearMatrix(bound)
+    a = bound .* (2 .* rand(3) .- 1)  # Get 3 random floats
+    A = [1. a[1] a[2]
+         0   1.  a[3]
+         0   0   1.0]
+    return A
+
+end
+
+
+function randomStretchMatrix(bound)
+    a = bound .* (2 .* rand(2) .- 1)  # Get 3 random floats
+    A = [a[1] 0  0
+         0  a[2] 0
+         0  0  1/a[1]/a[2]]
+    return A
+end
 function initialize(inputs,species,model)
     parsedlVecs = [parse.(Float64,split(x[1])) for x in inputs["lVecs"]]
     lVecs = hcat(parsedlVecs...)
@@ -37,6 +54,7 @@ function simulate(NS::NS,LJ::LennardJones.model)
         println("V = ", V)
         ## Find the top Kr highest energies
         sEnergies =  reverse(sortperm([i.energyPerAtomModel for i in NS.configs]))
+       # println(sort([i.energyPerAtomModel for i in NS.configs]))
         energyCutoff = NS.configs[sEnergies[NS.Kr]].energyPerAtomModel  # Find the 
         # Which configs need to be thrown out.
         forDelete = sEnergies[1:NS.Kr]
@@ -69,15 +87,20 @@ function randomWalk!(config::Crystal.config,model, energyCutoff::Float64, nWalk:
         for (iType,atomType) in enumerate(config.atomicBasis), (iAtom,atom) in enumerate(atomType)
             #@printf "Atom being moved. Type: %3i Number: %3i\n" iType iAtom 
             # Get a random displacement vector
-            randDisplace = (rand(3).-0.5)*0.1
-            config.atomicBasis[iType][iAtom] += randDisplace
+            randDisplace = (rand(3).-0.5)*0.01
+#            println("before")
+#            display(config.atomicBasis[iType][iAtom])
+            config.atomicBasis[iType][iAtom] = (config.atomicBasis[iType][iAtom] + randDisplace) .% 1
+#            println("after")
+#            display(config.atomicBasis[iType][iAtom])
+#            println(config.coordSys)
             newEnergy = LennardJones.totalEnergy(config,model) # Want total energies for NS
             # If the move resulted in a higher energy, undo the move and go to the next atom.
             if newEnergy > energyCutoff
-                #@printf "Rejected------------------------------------\n"
+                #println("Rejected")
                 config.atomicBasis[iType][iAtom] -= randDisplace
             else # Otherwise, update the energy 
-              #  @printf "Accepted\n"
+                #println("Accepted")
                 config.energyPerAtomModel = newEnergy
             end     
         end   

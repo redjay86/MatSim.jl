@@ -268,12 +268,8 @@ function totalEnergy(crystal::Crystal.config,model::model)
         end
     end
 
-    # Make sure I'm always returning energy per atom.
-    if lowercase(model.fitTo) == "total"
-        return ( (totalEnergy + model.offset) * model.stdEnergy + model.meanEnergy) / crystal.nAtoms
-    else
-        return (totalEnergy + model.offset) * model.stdEnergy + model.meanEnergy
-    end
+    # Undo the rescaling of the energy.
+    return (totalEnergy + model.offset) * model.stdEnergy + model.meanEnergy
 end
 
 
@@ -630,13 +626,15 @@ function gss(file,model,species;readend = 100)
     println(pures)
     enum=enumeration.read_header(file)
 
-    cDir = pwd()
-
+    cDir = dirname(file)
+    println(cDir)
     io = open(joinpath(cDir,"gss.out"),"w")
-    for (idx,line) in enumerate(eachline(file))
-        if idx > readend
-            break
-        end
+#    for (idx,line) in enumerate(eachline(file))
+    for idx in 1:readend
+        #println(idx)
+ #       if idx > readend
+ #           break
+ #       end
        # if idx < 16 
        #     continue
        # end
@@ -663,13 +661,15 @@ function gss(file,model,species;readend = 100)
 #
 #        l = parse.(Int,split(line)[18:26])
 #        lTransform = hcat([l[i:i+2] for i=1:3:7]...)'
+#        println(split(line))
 #        labeling = split(line)[27]
 #        arrows = try split(line)[28] catch y repeat("0",length(labeling)) end
 #        strN = idx - 15
 #        eStruct =  EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
-
-        crystal = Crystal.fromEnum(file,idx,["Na","Na"])
-        display(crystal)
+#        println(idx)
+        crystal = Crystal.fromEnum(file,idx,String.(species))
+#        crystal = Crystal.fromEnum(file,idx,["Na","Na"])
+        #display(crystal)
 
 #        crystal = Crystal.config(enum,eStruct,["Ag","Pt"],mink=true)
         crystal.energyPerAtomModel = LennardJones.totalEnergy(crystal,model)

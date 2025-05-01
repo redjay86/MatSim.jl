@@ -3,6 +3,7 @@
 cd("/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/libraries/")
 push!(LOAD_PATH,pwd())
 
+using SOAP
 using Crystal
 using YAML
 using enumeration
@@ -18,29 +19,41 @@ cDir = @__DIR__
 cd(cDir)
 # Initialize the model
 metrop,trainingSet,holdoutSet,model,dset = LennardJones.initializeLJ(joinpath(cDir,"modelInputs-2.yml"));
-
+println(dset.crystals[23].formationEnergyFP)
+println(dset.crystals[23].energyPerAtomFP)
 # Get samples
 LennardJones.getSamples(metrop,trainingSet,model)
 
+println(holdoutSet.crystals[56].formationEnergyFP)
+println(holdoutSet.crystals[56].energyPerAtomFP)
 resultsPath = joinpath(cDir,"draws-LJ.Pt-Ag")
 
 # Plot the results
-PlotsMH.predPlot(resultsPath,trainingSet)
+using Plots
+println([j.formationEnergyFP for j in holdoutSet.crystals])
+println([j.nType/j.nAtoms for j in holdoutSet.crystals])
+plot([(j.nType/j.nAtoms)[1] for j in holdoutSet.crystals],[j.formationEnergyFP for j in holdoutSet.crystals],markershape = :circle,seriestype = :scatter, label = "Holdout Set")
+pureCrystals = DataSets.findPureEnergies(joinpath(cDir,"structures.AgPt"))
+PlotsMH.concentrationPlot(resultsPath,holdoutSet,pures=pureCrystals,type = "fenth")
+PlotsMH.predPlot(resultsPath,holdoutSet,pures=pureCrystals,type = "peratom")
 PlotsMH.std_hist(resultsPath)
 hists = PlotsMH.std_hist(resultsPath)
 PlotsMH.tracePlots(resultsPath)
 PlotsMH.hists2d(resultsPath,"σ-ϵ";ar = :none)
 
+display(holdoutSet.crystals[2])
 # Build model with averages of the draws for fit parameters.
 LJ_average = PlotsMH.LJAverages(resultsPath)
 path = joinpath(cDir,"struct_enum.out")
 species = split(dset.title,"-")
-enumeration.gss(path,LJ_average,species,readend = 2500)  # Predict energies of everything in struct_enum.out
-LennardJones.totalEnergy(dset.crystals[8],LJ_average)
-
+LennardJones.gss(path,LJ_average,species,readend = 10800)  # Predict energies of everything in struct_enum.out
+LennardJones.totalEnergy(holdoutSet.crystals[450],LJ_average)
+println(holdoutSet.crystals[140].formationEnergyFP)
 if !isfile(joinpath(cDir,"NS.yml"))
     error("Can't find the NS.yml file")
 end
+
+
 input = YAML.load_file(joinpath(cDir,"NS.yml"))
 species = ["Ag", "Pt"]
 myNS = nSampling.initializeSimulation(input["params"],species,LJ_average)# Initialize the simulation...
@@ -52,12 +65,6 @@ display(dset.crystals[55].coordSys)
 display(LJ.meanEnergy)
 display(model)
 model = MatSim.LJ(model.order,model.cutoff, model.σ, model.ϵ,trainingSet.stdEnergy,trainingSet.meanEnergy, trainingSet.offset)
-
-using QHull
-using Pkg
-using StaticArrays
-convert(SVector{3}, 0.5 * rand(3) .- 0.25)
-Pkg.add("QHull")
 
 
 vaspDir = joinpath(cDir,"training_set")
@@ -140,3 +147,19 @@ for i in structs
     vaspUtils.writePOSCAR(crystal,joinpath(path,"POSCAR"),)  # Write the POSCAR file.
     vaspUtils.writeKPOINTS(path,kp)
 end
+
+
+hull = DataSets.getConvexHull(joinpath(cDir,"gss.out"))
+dPoints = [parse.(Float64,[split(x)[2],split(x)[5]]) for x in eachline(joinpath(cDir,"gss.out"))]
+dPoints[:,1] 
+plot([x[1] for x in dPoints],[x[2] for x in dPoints],markershape = :plus,seriestype = :scatter, label = "Convex Hull Points")
+plot!(hull[:,1],hull[:,2], markershape = :circle, linecolor = :black,label = "Convex Hull")
+
+
+using StaticArrays
+using LinearAlgebra
+SOAP.ρ(dset.crystals[152],dset.crystals[152].atomicBasis[1][3],2,SVector(0.5,0.25,0.75),20)
+SOAP.c_nlm(dset.crystals[152],dset.crystals[152].atomicBasis[1][3],2,2,2,2,4)
+SOAP.initialize(4,5,15)
+SOAP.calculate(dset.crystals[152],SOAP.initialize(4,5,15))
+display(dset.crystals[152].atomicBasis[1][1])

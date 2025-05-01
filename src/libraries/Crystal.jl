@@ -323,24 +323,30 @@ function fromPOSCAR(lines::Vector{String},species::Vector{String};overwriteLatPa
 end
 
 #function mapIntoCell(crystal::Crystal,atom::Vector{Int64})
+#    if crystal.coordSys[1] == "C"
+#        atom = CartesianToDirect(crystal,atom)
+#    end
 #    # Convert to Direct.
 #    # Map back into cell.
 #    # Go back to cartesian.
 #    # Python code... Needs translated to Julia
 #    new_point = []
-#    for i in vec:
-#        if i < 0.0 or i > 1.0:
+#    for i in atom
+#        if i < 0.0 or i > 1.0
 #         #   print(i,' i')
 #         #   print(floor(i),' floor')
 #         #   print(i - floor(i),' result')
-#            new_point.append(i - floor(i))
-#        elif i == 1.0:
-#            new_point.append(0.0)
-#        else:
-#            new_point.append(i)
-#    return array(new_point)
-#end
+#            append!(new_point,i - floor(i))
+#        elseif isapprox(i,1.0,atol = 1e-4)#  i == 1.0
+#            append!(new_point,0.0)
+#        else
+#            append!(new_point,i)
+#        end
+#    end
 #
+#    return new_point
+#end
+
 
 """
      Calculate the formation energy for a crystal
@@ -375,6 +381,10 @@ function fccPures(types)
 end
 
 function formationEnergy(mixEnergyPerAtom,pureEnergiesPerAtom,concentrations)
+    println("Calculating formation energy")
+    println(mixEnergyPerAtom)
+    println(pureEnergiesPerAtom)
+    println(concentrations)
     return mixEnergyPerAtom - sum(concentrations .* pureEnergiesPerAtom)
 
 end
@@ -393,7 +403,7 @@ end
 #end
 
 function totalEnergyFromFormationEnergy!(crystal,pures)
-    crystal.formationEnergyFP = crystal.energyPerAtomFP - sum(crystal.nTypes/crystal.nAtoms .* pures)
+#    crystal.formationEnergyFP = crystal.energyPerAtomFP - sum(crystal.nTypes/crystal.nAtoms .* pures)
     crystal.energyPerAtomFP = crystal.formationEnergyFP + sum(crystal.nTypes/crystal.nAtoms .* pures)
 #    return energyPerAtom - sum(concs .* pureEnergies)
 
@@ -636,7 +646,6 @@ function vegardsVolume(elements,atom_counts,volume)
     if nothing in [findfirst(x-> x == lowercase(i),lowercase.(keys(element_volume))) for i in elements]
         return 1.0
     end
-    
     nAtoms = sum(atom_counts)
     nTypes = length(atom_counts)
     concentrations = [x/nAtoms for x in atom_counts]

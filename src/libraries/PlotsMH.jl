@@ -6,6 +6,7 @@ using DataSets:DataSet
 using DelimitedFiles
 using LennardJones
 using StatsBase
+using Crystal
 
 function σ_hists(filePath)
     outFile = open(filePath,"r")
@@ -180,7 +181,7 @@ function readHeader(filePath)
     return system,fitTo,standardize,muEnergy,sigmaEnergy,offsetEnergy,cutoff
 end
 
-function predPlot(filePath, holdoutSet::DataSet)
+function predPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.config}= Vector{Crystal.config}(undef,2), type = "fenth")
     #Read the draws from file
     system,fitTo,standardize,muEnergy,sigmaEnergy,offsetEnergy,cutoff = readHeader(filePath)
     data = readdlm(filePath,Float64;skipstart = 9)
@@ -203,32 +204,78 @@ function predPlot(filePath, holdoutSet::DataSet)
 #        error("Number of interaction types not matching up with specified order")
 #    end
 
-    trueVals = zeros(Float64,length(holdoutSet.crystals))
-    predictVals = zeros(Float64,length(holdoutSet.crystals))
-    predictUnc = zeros(Float64,length(holdoutSet.crystals))
-    rmsError = zeros(Float64,length(holdoutSet.crystals))
-    for j = 1:length(holdoutSet.crystals)
-        if fitTo == "peratom"
-            trueVals[j] = holdoutSet.crystals[j].energyPerAtomFP
-        elseif fitTo == "total"
-            trueVals[j] = holdoutSet.crystals[j].energyPerAtomFP * holdoutSet.crystals[j].nAtoms
-        elseif fitTo == "fenth"
-            trueVals[j] = holdoutSet.crystals[j].formationEnergyFP
+    trueVals = zeros(Float64,length(dataSet.crystals))
+    predictVals = zeros(Float64,length(dataSet.crystals))
+    predictUnc = zeros(Float64,length(dataSet.crystals))
+    rmsError = zeros(Float64,length(dataSet.crystals))
+    for j = 1:length(dataSet.crystals)
+        if type == "fenth"
+            trueVals[j] = dataSet.crystals[j].formationEnergyFP
+        elseif type == "peratom"
+            trueVals[j] = dataSet.crystals[j].energyPerAtomFP
+        elseif type == "total"
+            trueVals[j] = dataSet.crystals[j].energyPerAtomFP * dataSet.crystals[j].nAtoms
         else
             error("I don't know what kind of energies you were fitting to!")
         end
+
         overDraws = zeros(Float64,nDraws)
         for i = 1:nDraws
             model.ϵ[:,:] .= ϵ_draws[i,:,:]
             model.σ[:,:] .= σ_draws[i,:,:]
-            overDraws[i] = LennardJones.totalEnergy(holdoutSet.crystals[j],model)
-#            overDraws[i] = (MatSim.totalEnergy(holdoutSet.crystals[j],LJ) + offset) * stdEnergy + meanEnergy
+            overDraws[i] = LennardJones.totalEnergy(dataSet.crystals[j],model)
+#            overDraws[i] = (MatSim.totalEnergy(dataSet.crystals[j],LJ) + offset) * stdEnergy + meanEnergy
         end
-        predictVals[j] = mean(overDraws)
-        predictUnc[j] = std(overDraws)
+        if fitTo == "peratom"
+            if type == "fenth"
+                predictVals[j] = Crystal.formationEnergy(mean(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms) 
+                predictUnc[j] = Crystal.formationEnergy(std(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+            elseif type == "peratom"
+                predictVals[j] = mean(overDraws)
+                predictUnc[j] = std(overDraws)
+            elseif type == "total"
+                predictVals[j] = mean(overDraws) * dataSet.crystals[j].nAtoms
+                predictUnc[j] = std(overDraws)*dataSet.crystals[j].nAtoms
+            else
+                error("I don't know what kind of plot you want!")
+            end
+        elseif fitTo == "total"
+            if type == "fenth"
+                predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+            elseif type == "peratom"
+                predictVals[j] = mean(overDraws)/dataSet.crystals[j].nAtoms
+                predictUnc[j] = std(overDraws)/dataSet.crystals[j].nAtoms
+            elseif type == "total"
+                predictVals[j] = mean(overDraws)
+                predictUnc[j] = std(overDraws)
+            else
+                error("I don't know what kind of plot you want!")
+            end
+#            predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+#            predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+        elseif fitTo == "fenth"
+            if type == "fenth"
+                predictVals[j] = mean(overDraws)
+                predictUnc[j] = std(overDraws)
+            elseif type == "peratom"
+                predictVals[j] = mean(overDraws) + sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures])
+                predictUnc[j] = std(overDraws)+ sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures])
+            elseif type == "total"
+                predictVals[j] = mean(overDraws) + sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures]) * dataSet.crystals[j].nAtoms
+                predictUnc[j] = std(overDraws)+ sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures]) * dataSet.crystals[j].nAtoms
+            else
+                error("I don't know what kind of plot you want!")
+            end
+
+        else
+            error("I don't know what kind of energies you were fitting to!")
+        end
     end
-    percentError = (predictVals .- trueVals)./trueVals
-    percentHist = histogram(percentError,bins = 100,normalize = :pdf,title = "percent error")
+    percentError = filter(isfinite,(predictVals .- trueVals)./trueVals)
+    println(percentError)
+    println(maximum(percentError))
+    percentHist = histogram(percentError,bins = 100,normalize = :pdf,title = "percent error" )
     rmsError = sqrt(mean( (trueVals .- predictVals).^2 ))
 
 
@@ -238,13 +285,128 @@ function predPlot(filePath, holdoutSet::DataSet)
     r = @layout [grid(2,1)]
 
     # Plot predicted vs true energies. Slope=1 line is a perfect fit.
-    myp = plot(predictVals,trueVals,seriestype = :scatter,xerror = predictUnc,ms = 2.5,ylabel = "True Energy (eVs/atom)", xlabel = "Predicted Energy (eVs/atom)",legend=false)
+    myp = plot(predictVals,trueVals,seriestype = :scatter,ms = 2.5,ylabel = "True Energy (eVs/atom)", xlabel = "Predicted Energy (eVs/atom)",legend=false)
     tag = @sprintf("RMS Error: %8.4f",rmsError)
     annotate!((0.75,0.25),tag)
     final = plot(myp,percentHist,layout = r)
     plot!(x,x,lw = 5)
     #using Printf
     return final
+end
+
+
+
+
+function concentrationPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.config}= Vector{Crystal.config}(undef,2), type = "fenth")
+    #Read the draws from file
+    system,fitTo,standardize,muEnergy,sigmaEnergy,offsetEnergy,cutoff = readHeader(filePath)
+    data = readdlm(filePath,Float64;skipstart = 9)
+
+    nDraws = countlines(filePath) - 9
+    order = convert(Int64,ceil(sqrt((size(data)[2] - 1)/2)))
+    nInteractionTypes = sum(1:order)
+    model = LennardJones.model(order,cutoff,zeros(order,order),zeros(order,order),sigmaEnergy,muEnergy,offsetEnergy,fitTo)
+
+    ϵ_draws = zeros(nDraws,order,order)
+    σ_draws = zeros(nDraws,order,order)
+    for i = 1:order, j = i:order
+        ϵ_draws[:,i,j] = convert.(Float64,data[:,i + j - 1])
+        σ_draws[:,i,j] = convert.(Float64,data[:,nInteractionTypes + i + j - 1])
+    end
+#    if size(LJ.σ)[1] != LJ.order
+#        error("Number of interaction types not matching up with specified order")
+#    end
+
+    trueVals = zeros(Float64,length(dataSet.crystals))
+    predictVals = zeros(Float64,length(dataSet.crystals))
+    predictUnc = zeros(Float64,length(dataSet.crystals))
+    rmsError = zeros(Float64,length(dataSet.crystals))
+    for j = 1:length(dataSet.crystals) 
+        if type == "fenth"
+            trueVals[j] = dataSet.crystals[j].formationEnergyFP
+        elseif type == "peratom"
+            trueVals[j] = dataSet.crystals[j].energyPerAtomFP
+        elseif type == "total"
+            trueVals[j] = dataSet.crystals[j].energyPerAtomFP * dataSet.crystals[j].nAtoms
+        else
+            error("I don't know what kind of energies you were fitting to!")
+        end
+
+        overDraws = zeros(Float64,nDraws)
+        for i = 1:nDraws
+            model.ϵ[:,:] .= ϵ_draws[i,:,:]
+            model.σ[:,:] .= σ_draws[i,:,:]
+            overDraws[i] = LennardJones.totalEnergy(dataSet.crystals[j],model)
+#            overDraws[i] = (MatSim.totalEnergy(dataSet.crystals[j],LJ) + offset) * stdEnergy + meanEnergy
+        end
+        if fitTo == "peratom"
+            if type == "fenth"
+                predictVals[j] = Crystal.formationEnergy(mean(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms) 
+                predictUnc[j] = Crystal.formationEnergy(std(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+            elseif type == "peratom"
+                predictVals[j] = mean(overDraws)
+                predictUnc[j] = std(overDraws)
+            elseif type == "total"
+                predictVals[j] = mean(overDraws) * dataSet.crystals[j].nAtoms
+                predictUnc[j] = std(overDraws)*dataSet.crystals[j].nAtoms
+            else
+                error("I don't know what kind of plot you want!")
+            end
+        elseif fitTo == "total"
+            if type == "fenth"
+                predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+            elseif type == "peratom"
+                predictVals[j] = mean(overDraws)/dataSet.crystals[j].nAtoms
+                predictUnc[j] = std(overDraws)/dataSet.crystals[j].nAtoms
+            elseif type == "total"
+                predictVals[j] = mean(overDraws)
+                predictUnc[j] = std(overDraws)
+            else
+                error("I don't know what kind of plot you want!")
+            end
+#            predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+#            predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+        elseif fitTo == "fenth"
+            if type == "fenth"
+                predictVals[j] = mean(overDraws)
+                predictUnc[j] = std(overDraws)
+            elseif type == "peratom"
+                predictVals[j] = mean(overDraws) + sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures])
+                predictUnc[j] = std(overDraws)+ sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures])
+            elseif type == "total"
+                predictVals[j] = mean(overDraws) + sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures]) * dataSet.crystals[j].nAtoms
+                predictUnc[j] = std(overDraws)+ sum(dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms .* [x.energyPerAtomFP for x in pures]) * dataSet.crystals[j].nAtoms
+            else
+                error("I don't know what kind of plot you want!")
+            end
+
+        else
+            error("I don't know what kind of energies you were fitting to!")
+        end
+    end
+#    percentError = (predictVals .- trueVals)./trueVals
+#    percentHist = histogram(percentError,bins = 100,normalize = :pdf,title = "percent error")
+#    rmsError = sqrt(mean( (trueVals .- predictVals).^2 ))
+
+
+ #   upper = maximum(trueVals)
+ #   lower = minimum(trueVals)
+ #   x = 1.15*lower:0.05:0.85*upper
+ #   r = @layout [grid(2,1)]
+    concentrations = [(j.nType/j.nAtoms)[1] for j in dataSet.crystals]
+    # Plot predicted vs true energies. Slope=1 line is a perfect fit.
+    display(predictVals)
+    display(trueVals)
+    myp = plot(concentrations,trueVals,seriestype = :scatter,ms = 2.5,ylabel = "True Energy (eVs/atom)", xlabel = "concentration",legend=false)
+    plot!(concentrations,predictVals,seriestype = :scatter,markershape = :plus,markercolor = :red,ms = 1.5,ylabel = "Predicted Energy (eVs/atom)", xlabel = "concentration",legend=false)
+ #   tag = @sprintf("RMS Error: %8.4f",rmsError)
+ #   annotate!((0.75,0.25),tag)
+ #   final = plot(myp,percentHist,layout = r)
+ #   plot!(x,x,lw = 5)
+    #using Printf
+    savefig(myp,"cHullPlot.pdf")
+    return myp
 end
 
 function tracePlots(filePath)

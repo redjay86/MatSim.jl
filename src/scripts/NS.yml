@@ -6,9 +6,9 @@ params:
          [0.0 0.0 2.0]] 
   nAtoms: [5, 3]
   minSep: 3.0
-  K: 512 # Number of walkers in the pool.
+  K: 100 # Number of walkers in the pool.
   Kr: 6  # Number of walkers to remove at each iteration.
-  L: 100 # Length of random walk.
+  L: 200 # Length of random walk.
   eps: 1e-6 # Algorithm stopping criteria
   walkMethod: rWalk # GMC, TEHMC
 
