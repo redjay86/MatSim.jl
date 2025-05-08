@@ -1,8 +1,10 @@
 module DataSets
 
-using Crystal
+using ase
 using StatsBase
 using Printf
+using YAML
+#using metrop
 #using LazySets
 using QHull
 #using LennardJones
@@ -10,7 +12,7 @@ using QHull
 
 struct DataSet
     title:: String
-    crystals::Vector{Crystal.config}
+    configs::Vector{ase.atoms}
     stdEnergy:: Float64
     meanEnergy::Float64
     offset::Float64
@@ -19,7 +21,110 @@ struct DataSet
     fitTo::String
 end
 
-#DataSet(dSet) = fromCrystals(dSet,standardize)
+
+function initialize(file;species = ["N-A", "N-A"],offset = 0.0)
+    # If you give a structures.in file directly, read directly from that. 
+    if occursin("structures",file)
+        println("Reading from" * file)
+        dset = fromStructuresIn(file,species,overwriteLatPar = false,offset = offset)
+        # Add other test cases as needed
+    # Otherwise, parse the YAML file and read from the appropriate file.
+    elseif occursin("yml",file)
+        input = YAML.load_file(file,dicttype = Dict{String,Any})
+
+        
+        # Get the dataset
+        species = String[x for x in input["dataset"]["species"]]
+        dataFile = input["dataset"]["file"]
+        println("Reading from" * dataFile)
+        dset = fromStructuresIn(dataFile,species,overwriteLatPar = false,offset = offset)
+    
+    end
+    return dset
+end
+
+
+
+
+
+
+
+
+
+function gss(file,model,species;readend = 100)
+#    filePath = joinpath(dirname(file), "structures.AgPt")
+#    pures = findPureEnergies(filePath)
+    pureases = ase.fccPures(species)
+    pures = []
+    for pure in pureases
+        push!(pures,LennardJones.totalEnergy(pure,model))
+    end
+    println(pures)
+    enum=enumeration.read_header(file)
+
+    cDir = dirname(file)
+    println(cDir)
+    io = open(joinpath(cDir,"gss.out"),"w")
+#    for (idx,line) in enumerate(eachline(file))
+    for idx in 1:readend
+        #println(idx)
+ #       if idx > readend
+ #           break
+ #       end
+       # if idx < 16 
+       #     continue
+       # end
+
+
+
+#        hnfN = parse(Int,split(line)[2])
+#        hnf_degen = parse(Int,split(line)[3])
+#        label_degen = parse(Int,split(line)[4])
+#        total_degen = parse(Int,split(line)[5])
+#        sizeN = parse(Int,split(line)[6])
+#        n = parse(Int,split(line)[7])
+#        pgOps = parse(Int,split(line)[8])
+#        SNF = Diagonal(parse.(Int,split(line)[9:11]))
+#        a = parse(Int,split(line)[12])
+#        b = parse(Int,split(line)[13])
+#        c = parse(Int,split(line)[14])
+#        d = parse(Int,split(line)[15])
+#        e = parse(Int,split(line)[16])
+#        f = parse(Int,split(line)[17])
+#        HNF = LowerTriangular([a 0 0
+#                               b c 0 
+#                               d e f])
+#
+#        l = parse.(Int,split(line)[18:26])
+#        lTransform = hcat([l[i:i+2] for i=1:3:7]...)'
+#        println(split(line))
+#        labeling = split(line)[27]
+#        arrows = try split(line)[28] catch y repeat("0",length(labeling)) end
+#        strN = idx - 15
+#        eStruct =  EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
+#        println(idx)
+        atoms = ase.fromEnum(file,idx,String.(species))
+#        atoms = ase.fromEnum(file,idx,["Na","Na"])
+        #display(atoms)
+
+#        atoms = ase.atoms(enum,eStruct,["Ag","Pt"],mink=true)
+        atoms.energyPerAtomModel = LennardJones.totalEnergy(atoms,model)
+        conc = atoms.nType/atoms.nAtoms
+
+        atoms.formationEnergyModel = ase.formationEnergy(atoms.energyPerAtomModel,pures,conc)
+        printString = @sprintf "%5d  %8.4f %8.4f %8.4f %8.4f\n" idx conc[1] conc[2] atoms.energyPerAtomModel atoms.formationEnergyModel
+        write(io,printString)
+    end
+    close(io)
+end
+
+
+
+
+
+
+
+#DataSet(dSet) = fromases(dSet,standardize)
 
 function getConvexHull(file::String)
 
@@ -61,81 +166,117 @@ function getConvexHull(file::String)
     return unique(positiveRemoved,dims =1)  # Since I started with a matrix of zeros and then removed points, there may be unnecessary zeros remaining in the array. Remove them.
 end
 
-function fromdSet(dSet,standardize,fitTo)
+function set_training_set(dSet,standardize,fitTo)
     if standardize
         println("Standardizing Data")
         if lowercase(fitTo) == "peratom"
             println("Using per atom energies")
-            for i in dSet.crystals
+            for i in dSet.configs
                 i.fitEnergy = (i.energyPerAtomFP - dSet.meanEnergy)/dSet.stdEnergy-dSet.offset
             end
         elseif lowercase(fitTo) == "total"
             println("Using total energies")
-            for i in dSet.crystals
+            for i in dSet.configs
                 i.fitEnergy = (i.energyPerAtomFP * i.nAtoms - dSet.meanEnergy)/dSet.stdEnergy-dSet.offset
             end
         elseif lowercase(fitTo) == "fenth"
             println("Using formation energies")
-            for i in dSet.crystals
+            for i in dSet.configs
                 i.fitEnergy = (i.formationEnergyFP - dSet.meanEnergy)/dSet.stdEnergy-dSet.offset
             end
         end
-        return DataSet(dSet.title,dSet.crystals,dSet.stdEnergy,dSet.meanEnergy,dSet.offset,dSet.nData,true,lowercase(fitTo))
+        return DataSet(dSet.title,dSet.configs,dSet.stdEnergy,dSet.meanEnergy,dSet.offset,dSet.nData,true,lowercase(fitTo))
     else
         println("Not standardizing data")
         if lowercase(fitTo) == "peratom"
             println("Using per atom energies")
-            for i in dSet.crystals
+            for i in dSet.configs
                 i.fitEnergy = i.energyPerAtomFP
             end
         elseif lowercase(fitTo) == "total"
             println("Using total energies")
-            for i in dSet.crystals
+            for i in dSet.configs
                 i.fitEnergy = i.energyPerAtomFP * i.nAtoms
             end
         elseif lowercase(fitTo) == "fenth"
             println("Using formation energies")
-            for i in dSet.crystals
+            for i in dSet.configs
                 i.fitEnergy = i.formationEnergyFP
             end
         end
-        return DataSet(dSet.title,dSet.crystals,dSet.stdEnergy,dSet.meanEnergy,dSet.offset,dSet.nData,false,lowercase(fitTo))
+        return DataSet(dSet.title,dSet.configs,dSet.stdEnergy,dSet.meanEnergy,dSet.offset,dSet.nData,false,lowercase(fitTo))
 
+    end
+
+end
+
+function getTraining_Holdout_Sets(file;nTraining=100,fitTo="peratom",standardize=false)
+    # If you give a structures.in file directly, read directly from that. 
+    if occursin("structures",file)
+        println("Reading from" * file)
+        dset = fromStructuresIn(file,species,overwriteLatPar = false,offset = offset)
+        # Add other test cases as needed
+    # Otherwise, parse the YAML file and read from the appropriate file.
+    elseif occursin("yml",file)
+        input = YAML.load_file(file,dicttype = Dict{String,Any})
+
+        
+        # Get the dataset
+        species = String[x for x in input["dataset"]["species"]]
+        dataFile = input["dataset"]["file"]
+        offset = Float64(input["dataset"]["offset"])
+        standardize = Bool(input["dataset"]["standardize"])
+        fitTo = String(input["dataset"]["fitTo"])
+        nTraining = Int(input["dataset"]["nTraining"])
+
+        println("Reading from" * dataFile)
+        dset = fromStructuresIn(dataFile,species,overwriteLatPar = false,offset = offset)
+
+    end
+    trainingSet,holdoutSet = getTraining_Holdout_Sets(dset,nTraining,fitTo,standardize)
+
+    return trainingSet,holdoutSet
+end
+
+
+function precalc_LJ_distances!(dset::DataSet,cutoff)
+    for i in dset.configs
+        ase.precalc_LJ_distances!(i,cutoff)
     end
 
 end
 function getTraining_Holdout_Sets(dset::DataSet,nStructures,fitTo,standardize)
 
-    training = StatsBase.sample(1:length(dset.crystals),nStructures,replace = false)
-    holdout = setdiff(1:length(dset.crystals),training)
+    training = StatsBase.sample(1:length(dset.configs),nStructures,replace = false)
+    holdout = setdiff(1:length(dset.configs),training)
 
     if lowercase(fitTo) == "peratom"
-        meanTraining = mean([i.energyPerAtomFP for i in dset.crystals[training]])
-        stdTraining = std([i.energyPerAtomFP for i in dset.crystals[training]])
+        meanTraining = mean([i.energyPerAtomFP for i in dset.configs[training]])
+        stdTraining = std([i.energyPerAtomFP for i in dset.configs[training]])
 
-        meanHoldout = mean([i.energyPerAtomFP for i in dset.crystals[holdout]])
-        stdHoldout = std([i.energyPerAtomFP for i in dset.crystals[holdout]])
+        meanHoldout = mean([i.energyPerAtomFP for i in dset.configs[holdout]])
+        stdHoldout = std([i.energyPerAtomFP for i in dset.configs[holdout]])
     elseif lowercase(fitTo) == "total"
-        meanTraining = mean([i.energyPerAtomFP * i.nAtoms for i in dset.crystals[training]])
-        stdTraining = std([i.energyPerAtomFP * i.nAtoms for i in dset.crystals[training]])
+        meanTraining = mean([i.energyPerAtomFP * i.nAtoms for i in dset.configs[training]])
+        stdTraining = std([i.energyPerAtomFP * i.nAtoms for i in dset.configs[training]])
 
-        meanHoldout = mean([i.energyPerAtomFP * i.nAtoms for i in dset.crystals[holdout]])
-        stdHoldout = std([i.energyPerAtomFP * i.nAtoms for i in dset.crystals[holdout]])
+        meanHoldout = mean([i.energyPerAtomFP * i.nAtoms for i in dset.configs[holdout]])
+        stdHoldout = std([i.energyPerAtomFP * i.nAtoms for i in dset.configs[holdout]])
     elseif lowercase(fitTo) == "fenth"
-        meanTraining = mean([i.formationEnergyFP for i in dset.crystals[training]])
-        stdTraining = std([i.formationEnergyFP for i in dset.crystals[training]])
+        meanTraining = mean([i.formationEnergyFP for i in dset.configs[training]])
+        stdTraining = std([i.formationEnergyFP for i in dset.configs[training]])
 
-        meanHoldout = mean([i.formationEnergyFP for i in dset.crystals[holdout]])
-        stdHoldout = std([i.formationEnergyFP for i in dset.crystals[holdout]])
+        meanHoldout = mean([i.formationEnergyFP for i in dset.configs[holdout]])
+        stdHoldout = std([i.formationEnergyFP for i in dset.configs[holdout]])
     else
         error(" Can't tell what kind of energies you're wanting to fit to")
     end        
 
 
-    trainingSet = DataSet(dset.title,dset.crystals[training],stdTraining,meanTraining,dset.offset,length(dset.crystals[training]),false,"?")
-    holdoutSet = DataSet(dset.title,dset.crystals[holdout],stdHoldout,meanHoldout,dset.offset,length(dset.crystals[holdout]),false,"?")
+    trainingSet = DataSet(dset.title,dset.configs[training],stdTraining,meanTraining,dset.offset,length(dset.configs[training]),false,"?")
+    holdoutSet = DataSet(dset.title,dset.configs[holdout],stdHoldout,meanHoldout,dset.offset,length(dset.configs[holdout]),false,"?")
 
-    return fromdSet(trainingSet,standardize,fitTo), holdoutSet
+    return set_training_set(trainingSet,standardize,fitTo), holdoutSet
     
 end
 
@@ -154,7 +295,7 @@ function findPureEnergies(filePath)
     end
     println("order")
     println(order)
-    pures = Vector{Crystal.config}(undef,order)  # Initialize a vector to hold the pure substances.
+    pures = Vector{ase.atoms}(undef,order)  # Initialize a vector to hold the pure substances.
     cLines = Vector{String}()
     counter = 0
     energyType = "peratom"
@@ -167,19 +308,19 @@ function findPureEnergies(filePath)
             continue
         end
         if occursin("#--",line)
-            thisCrystal = Crystal.fromPOSCAR(cLines,["N-a", "N-a"])
+            thisase = ase.fromPOSCAR(cLines,["N-a", "N-a"])
 #            energy = parse(Float64,cLines[end])
             if lowercase(energyType) == "peratom"
-                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])
+                thisase.energyPerAtomFP = parse(Float64,cLines[end])
             elseif lowercase(energyType) == "total"
-                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])/thisCrystal.nAtoms
+                thisase.energyPerAtomFP = parse(Float64,cLines[end])/thisase.nAtoms
             elseif lowercase(energyType) == "fenth"
-                thisCrystal.formationEnergyFP = parse(Float64,cLines[end])
+                thisase.formationEnergyFP = parse(Float64,cLines[end])
             else 
                 error("Can't recognize the first line of structures.in")
             end
-            if count(!iszero,thisCrystal.nType) == 1  # If there is only one nonzero entry in the nType vector, it's a pure configuration.
-                pures[argmax(thisCrystal.nType)] = thisCrystal
+            if count(!iszero,thisase.nType) == 1  # If there is only one nonzero entry in the nType vector, it's a pure configuration.
+                pures[argmax(thisase.nType)] = thisase
             end
             cLines = Vector{String}()
             counter = 0
@@ -202,7 +343,7 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
     # The species list should always be in reverse alphabetical order. (All VASP calculations are performed under that convention)
     sort!(species,rev = true)
 
-    data = Vector{Crystal.config}()
+    data = Vector{ase.atoms}()
     cLines = Vector{String}()
     title = join(species,"-")
     counter = 0
@@ -217,39 +358,39 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
             continue
         end
         if occursin("#--",line)
-            thisCrystal = Crystal.fromPOSCAR(cLines,species,overwriteLatPar = overwriteLatPar)
+            thisase = ase.fromPOSCAR(cLines,species,overwriteLatPar = overwriteLatPar)
             if lowercase(energyType) == "peratom"
-                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])
+                thisase.energyPerAtomFP = parse(Float64,cLines[end])
                 if foundPures
-                    println("calculating formation energy!")
-                    println(thisCrystal.formationEnergyFP)
-                    concentrations = thisCrystal.nType /thisCrystal.nAtoms
-                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,[x.energyPerAtomFP/x.nAtoms for x in pures],concentrations)
-#                    MatSim.formationEnergy!(thisCrystal,pures)
+#                    println("calculating formation energy!")
+#                    println(thisase.formationEnergyFP)
+                    concentrations = thisase.nType /thisase.nAtoms
+                    thisase.formationEnergyFP = ase.formationEnergy(thisase.energyPerAtomFP,[x.energyPerAtomFP/x.nAtoms for x in pures],concentrations)
+#                    MatSim.formationEnergy!(thisase,pures)
                 else
-                    thisCrystal.formationEnergyFP = NaN
+                    thisase.formationEnergyFP = NaN
                 end
             elseif lowercase(energyType) == "total"
-                thisCrystal.energyPerAtomFP = parse(Float64,cLines[end])/thisCrystal.nAtoms
+                thisase.energyPerAtomFP = parse(Float64,cLines[end])/thisase.nAtoms
                 if foundPures
-                    concentrations = thisCrystal.nType /thisCrystal.nAtoms
-                    thisCrystal.formationEnergyFP = Crystal.formationEnergy(thisCrystal.energyPerAtomFP,[x.energyPerAtomFP/x.nAtoms for x in pures],concentrations)
-#                    MatSim.formationEnergy!(thisCrystal,pures)
+                    concentrations = thisase.nType /thisase.nAtoms
+                    thisase.formationEnergyFP = ase.formationEnergy(thisase.energyPerAtomFP,[x.energyPerAtomFP/x.nAtoms for x in pures],concentrations)
+#                    MatSim.formationEnergy!(thisase,pures)
                 else
-                    thisCrystal.formationEnergyFP = NaN
+                    thisase.formationEnergyFP = NaN
                 end
             elseif lowercase(energyType) == "fenth"
-                thisCrystal.formationEnergyFP = parse(Float64,cLines[end])
+                thisase.formationEnergyFP = parse(Float64,cLines[end])
                 if foundPures
-                    Crystal.totalEnergyFromFormationEnergy!(thisCrystal,[x.energyPerAtomFP/x.nAtoms for x in pures])
+                    ase.totalEnergyFromFormationEnergy!(thisase,[x.energyPerAtomFP/x.nAtoms for x in pures])
                 else
-                    thisCrystal.energyPerAtomFP = NaN
+                    thisase.energyPerAtomFP = NaN
                 end
             else 
                 error("Can't recognize the first line of structures.in")
             end
-            if !isnan(thisCrystal.energyPerAtomFP)
-                push!(data,thisCrystal)
+            if !isnan(thisase.energyPerAtomFP)
+                push!(data,thisase)
             end
             cLines = Vector{String}()
             counter = 0
@@ -261,22 +402,24 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
 #            nAtoms = sum(parse(Int64,x) for x in split(pos[idx + 6]))
 #            startpoint = idx + 1
 #            theend = idx + 7 + nAtoms
-#            thisCrystal = Crystal(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyPerAtomFP = parse(Float64,pos[theend + 2 ]))
-#            if !isnan(thisCrystal.energyPerAtomFP)
-#                push!(data,thisCrystal)
+#            thisase = ase(pos[startpoint:theend],species,overwriteLatPar = overwriteLatPar, energyPerAtomFP = parse(Float64,pos[theend + 2 ]))
+#            if !isnan(thisase.energyPerAtomFP)
+#                push!(data,thisase)
 #            end
 #        end
     end
     meanEnergy = mean([i.energyPerAtomFP for i in data])
     stdEnergy = std([i.energyPerAtomFP for i in data])    
+    println("Mean Energy: ",meanEnergy)
+    println("Std Energy: ",stdEnergy)
     return DataSet(title,data,stdEnergy,meanEnergy,offset,length(data),false,"?")
 end
 
 function standardizeData!(dataSet::DataSet,offset::Float64)
-#    meanEnergy = mean([i.energyPerAtomFP for i in dataSet.crystals])
-#    stdEnergy = std([i.energyPerAtomFP for i in dataSet.crystals])
+#    meanEnergy = mean([i.energyPerAtomFP for i in dataSet.configs])
+#    stdEnergy = std([i.energyPerAtomFP for i in dataSet.configs])
     #offset = 3
-    for i in dataSet.crystals
+    for i in dataSet.configs
         i.fitEnergy = (i.energyPerAtomFP - dataSet.meanEnergy)/dataSet.stdEnergy-offset
     end
 #    dataSet.offset = offset
@@ -286,7 +429,7 @@ end
 
 function writeStructuresIn(path::String, structures::DataSet)
     io = open(path, "w")
-    for crystal in structures.crystals
+    for crystal in structures.configs
         write(io,"#-----------------------\n")
         write(io,crystal.title * "\n")
         write(io,string(crystal.latpar) * "\n")

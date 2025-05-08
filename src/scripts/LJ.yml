@@ -1,12 +1,4 @@
-title: Cu-Pt
-species: [Cu, Pt]
-path: "/Users/lancenelson/OneDrive - BYU-Idaho/codes/MatSim/src/scripts/structures.CuPt"
-
-settings:
-  standardize: true
-  offset: 3.0
-  cutoff: 5.0
-  nTraining: 200
-  order: 2
-
+fitTo: peratom
+cutoff: 5.6
+order: 2
 

@@ -1,12 +1,13 @@
 module PlotsMH
 
+using ase
 using Printf
 using Plots
 using DataSets:DataSet
 using DelimitedFiles
 using LennardJones
 using StatsBase
-using Crystal
+#using ase
 
 function σ_hists(filePath)
     outFile = open(filePath,"r")
@@ -181,7 +182,7 @@ function readHeader(filePath)
     return system,fitTo,standardize,muEnergy,sigmaEnergy,offsetEnergy,cutoff
 end
 
-function predPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.config}= Vector{Crystal.config}(undef,2), type = "fenth")
+function predPlot(filePath, dataSet::DataSet;pures::Vector{ase.atoms}= Vector{ase.atoms}(undef,2), type = "fenth")
     #Read the draws from file
     system,fitTo,standardize,muEnergy,sigmaEnergy,offsetEnergy,cutoff = readHeader(filePath)
     data = readdlm(filePath,Float64;skipstart = 9)
@@ -228,8 +229,8 @@ function predPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.config}= Vect
         end
         if fitTo == "peratom"
             if type == "fenth"
-                predictVals[j] = Crystal.formationEnergy(mean(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms) 
-                predictUnc[j] = Crystal.formationEnergy(std(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictVals[j] = ase.formationEnergy(mean(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms) 
+                predictUnc[j] = ase.formationEnergy(std(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
             elseif type == "peratom"
                 predictVals[j] = mean(overDraws)
                 predictUnc[j] = std(overDraws)
@@ -241,8 +242,8 @@ function predPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.config}= Vect
             end
         elseif fitTo == "total"
             if type == "fenth"
-                predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
-                predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictVals[j] = ase.formationEnergy(mean(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictUnc[j] = ase.formationEnergy(std(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
             elseif type == "peratom"
                 predictVals[j] = mean(overDraws)/dataSet.crystals[j].nAtoms
                 predictUnc[j] = std(overDraws)/dataSet.crystals[j].nAtoms
@@ -252,8 +253,8 @@ function predPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.config}= Vect
             else
                 error("I don't know what kind of plot you want!")
             end
-#            predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
-#            predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+#            predictVals[j] = ase.formationEnergy(mean(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+#            predictUnc[j] = ase.formationEnergy(std(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
         elseif fitTo == "fenth"
             if type == "fenth"
                 predictVals[j] = mean(overDraws)
@@ -297,7 +298,7 @@ end
 
 
 
-function concentrationPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.config}= Vector{Crystal.config}(undef,2), type = "fenth")
+function concentrationPlot(filePath, dataSet::DataSet;pures::Vector{ase.atoms}= Vector{ase.atoms}(undef,2), type = "fenth")
     #Read the draws from file
     system,fitTo,standardize,muEnergy,sigmaEnergy,offsetEnergy,cutoff = readHeader(filePath)
     data = readdlm(filePath,Float64;skipstart = 9)
@@ -341,8 +342,8 @@ function concentrationPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.conf
         end
         if fitTo == "peratom"
             if type == "fenth"
-                predictVals[j] = Crystal.formationEnergy(mean(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms) 
-                predictUnc[j] = Crystal.formationEnergy(std(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictVals[j] = ase.formationEnergy(mean(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms) 
+                predictUnc[j] = ase.formationEnergy(std(overDraws),[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
             elseif type == "peratom"
                 predictVals[j] = mean(overDraws)
                 predictUnc[j] = std(overDraws)
@@ -354,8 +355,8 @@ function concentrationPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.conf
             end
         elseif fitTo == "total"
             if type == "fenth"
-                predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
-                predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictVals[j] = ase.formationEnergy(mean(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
+                predictUnc[j] = ase.formationEnergy(std(overDraws)/dataSet.crystals[j]/dataSet.crystals[j].nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nType/dataSet.crystals[j].nAtoms)
             elseif type == "peratom"
                 predictVals[j] = mean(overDraws)/dataSet.crystals[j].nAtoms
                 predictUnc[j] = std(overDraws)/dataSet.crystals[j].nAtoms
@@ -365,8 +366,8 @@ function concentrationPlot(filePath, dataSet::DataSet;pures::Vector{Crystal.conf
             else
                 error("I don't know what kind of plot you want!")
             end
-#            predictVals[j] = Crystal.formationEnergy(mean(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
-#            predictUnc[j] = Crystal.formationEnergy(std(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+#            predictVals[j] = ase.formationEnergy(mean(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
+#            predictUnc[j] = ase.formationEnergy(std(overDraws)/dataSet.crystals[j]/nAtoms,[x.energyPerAtomFP for x in pures] ,dataSet.crystals[j].nTypes/dataSet.crystals[j].nAtoms)
         elseif fitTo == "fenth"
             if type == "fenth"
                 predictVals[j] = mean(overDraws)
