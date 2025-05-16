@@ -42,7 +42,7 @@ end
 function initialize(inputs,species,model)
     nAtoms = sum(inputs["n_Atoms"])
     latticeConstant = (nAtoms * inputs["max_volume_per_atom"] * rand()^(1/(nAtoms + 1)))^(1/3)
-    lVecs = latticeConstant * [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+    lVecs = SMatrix{3,3,Float64,9}(latticeConstant * [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
 
     configs = [ase.initialize_cell_shape(latticeConstant,lVecs) for i in 1:inputs["n_walkers"]]
 #    parsedlVecs = [parse.(Float64,split(x[1])) for x in inputs["lVecs"]]
@@ -53,11 +53,14 @@ function initialize(inputs,species,model)
     walk_params = Dict("n_steps" => 10,
                        "shear_step_size" => inputs["shear_step_size"],
                        "stretch_step_size" => inputs["stretch_step_size"])
+    # Now do a random walk on the cell shape and place atoms at random positions
     for i in configs
-        println("walker: ", i)
-         do_cell_shape_walk!(i,walk_params)
-         ase.set_atoms_random!(i,inputs["n_Atoms"],inputs["minSep"],species)
-         i.energyPerAtomModel = ase.eval_energy(i,model)
+        #println("walker: ", i)
+        do_cell_shape_walk!(i,walk_params)
+        ase.set_atoms_random!(i,inputs["n_Atoms"],inputs["minSep"],species)
+        ase.set_masses(i,1.0)
+        ase.set_random_unit_velocities!(i,nAtoms,2.0)
+        i.model_energy = ase.eval_energy(i,model)
     end
     walker_params = NS_walker_params(inputs["n_single_walker_steps"],inputs["n_atom_steps"],
         inputs["n_cell_volume_steps"],inputs["n_cell_shear_steps"],inputs["n_cell_stretch_steps"],
@@ -86,11 +89,11 @@ function run_NS(NS::NS,LJ::LennardJones.model)
         ## Find the top Kr highest energies
         sEnergies =  reverse(sortperm([i.energyPerAtomModel for i in NS.walkers]))
        # println(sort([i.energyPerAtomModel for i in NS.walkers]))
-        energyCutoff = NS.walkers[sEnergies[NS.Kr]].energyPerAtomModel  # Find the 
+        energyCutoff = NS.walkers[sEnergies[NS.n_cull]].energyPerAtomModel  # Find the 
         # Which configs need to be thrown out.
-        forDelete = sEnergies[1:NS.Kr]
+        forDelete = sEnergies[1:NS.n_cull]
         # Which configs can be kept
-        keeps = sEnergies[NS.Kr + 1: end]
+        keeps = sEnergies[NS.n_cull + 1: end]
 
         println("Energy cutoff")
         display(energyCutoff)
@@ -114,7 +117,7 @@ end
 
 
 function walk_single_walker!(atoms::ase.atoms, model, walk_params::NS_walker_params,E_max)
-    possible = [do_atoms_step]#[do_cell_volume_step, do_cell_shear_step, do_cell_stretch_step, do_atoms_step]
+    possible = [do_cell_volume_step, do_cell_shear_step, do_cell_stretch_step, do_atoms_step]
     # Loop over the number of random walks to take.
     for iWalk in 1:walk_params.n_single_walker_steps
 #        println("Current Energy", ase.eval_energy(atoms,model))
@@ -129,9 +132,11 @@ function do_atoms_step(atoms::ase.atoms, model,walk_params,E_max) #atoms::ase.at
 
 
     if walk_params.atom_algorithm == "GMC"
-        do_single_walker_GMC!(atoms,walk_params.n_atom_steps,model,E_max)
+        ase.do_GMC!(atoms,walk_params.n_atom_steps,model,E_max)
     elseif walk_params.atom_algorithm == "MC"
-        do_single_walker_MC!(atoms,model,E_max,walk_params.n_atom_steps,E_max)
+        ase.do_MC!(atoms,walk_params.n_atom_steps,model,E_max)
+    elseif walk_params.atom_algorithm == "MD"
+        ase.do_MD!(atoms,walk_params.n_atom_steps,model,E_max)
     end
 end
 
@@ -178,7 +183,7 @@ function do_cell_step!(atoms,p_accept,T,E_max,ns_params,model)
     end
 
     oldCell = atoms.lVecs
-    oldPositions = atoms.atomicBasis
+    oldPositions = atoms.positions
     println("before")
     display(ase.eval_energy(atoms,model))
     
@@ -192,7 +197,7 @@ function do_cell_step!(atoms,p_accept,T,E_max,ns_params,model)
         atoms.fitEnergy = newEnergy
     else
         ase.set_cell!(atoms,oldCell)
-        atoms.atomicBasis = oldPositions # Can I just set cell with scale_atoms = true again?
+        atoms.positions = oldPositions # Can I just set cell with scale_atoms = true again?
     end
 
 end
@@ -255,7 +260,7 @@ function propose_stretch_step(atoms::ase.atoms,stepsize::Float64)
     rmv_vec_one = rand(1:3)
     rmv_vec_two = rand(1:3)
     if rmv_vec_one == rmv_vec_two
-        println("found duplicate vectors, regenerating rmv_vec_two")
+        #println("found duplicate vectors, regenerating rmv_vec_two")
         rmv_vec_two = (rmv_vec_two + 1) % 3 + 1
     end
     remaining_vec = [x for x in 1:3 if x != rmv_vec_one && x != rmv_vec_two][1]
@@ -268,39 +273,7 @@ function propose_stretch_step(atoms::ase.atoms,stepsize::Float64)
     return (1.0, transform)
 end
 
-# Perform a random walk on a single configuration subject to the constraint that the total energy be less than the cutoff
-# Not walking using the force vector (GMC), just random walks.  This may not work well for some systems.
-function do_single_walker_MC!(config::ase.atoms,model, energyCutoff::Float64, nWalk::Int64)
-    # Loop over the number of random walks to take.
-    for iWalk in 1:nWalk
-        #@printf "Step in random walk %3i\n" iWalk
-        #Loop over all of the atoms in the simulation.
-        for (iType,atomType) in enumerate(config.atomicBasis), (iAtom,atom) in enumerate(atomType)
-            #@printf "Atom being moved. Type: %3i Number: %3i\n" iType iAtom 
-            # Get a random displacement vector
-            randDisplace = (rand(3).-0.5)*0.01
-#            println("before")
-#            display(config.atomicBasis[iType][iAtom])
-            config.atomicBasis[iType][iAtom] = (config.atomicBasis[iType][iAtom] + randDisplace) .% 1
-#            println("after")
-#            display(config.atomicBasis[iType][iAtom])
-#            println(config.coordSys)
-            newEnergy = ase.eval_energy(config,model) # Want total energies for NS
-            # If the move resulted in a higher energy, undo the move and go to the next atom.
-            if newEnergy > energyCutoff
-                #println("Rejected")
-                config.atomicBasis[iType][iAtom] -= randDisplace
-            else # Otherwise, update the energy 
-                #println("Accepted")
-                config.energyPerAtomModel = newEnergy
-            end     
-        end   
-#        randDisplacement = [[ (rand(3).-0.5)*0.1 for i =1:config.nType[j]] for j = 1:config.order]
-#        config.atomicBasis .+= randDisplacement  # Use the displacement to move this atom.
 
-       # println(totalEnergy(config,model))
-    end
-end
 
 function do_cell_shape_walk!(atoms::ase.atoms, walk_params::Dict)
     possibilities =[propose_shear_step,propose_stretch_step]
@@ -320,10 +293,10 @@ function do_cell_shape_walk!(atoms::ase.atoms, walk_params::Dict)
 end
 
 function get_random_displacements(n_vecs)
-    displacements = [[zeros(SVector{3}) for i = 1:n_vecs[j]] for j = 1:length(n_vecs)]
-    for j = 1:length(n_vecs), i = 1:n_vecs[j]
+    displacements = [zeros(SVector{3}) for i = 1:n_vecs]
+    for j = 1:length(n_vecs)
         randVel = convert(SVector{3},(  2 * rand(3) .- 1.0))
-        displacements[j][i] = randVel/norm(randVel)
+        displacements[j] = 0.2*randVel/norm(randVel)
     end
     return displacements
 
@@ -331,74 +304,7 @@ function get_random_displacements(n_vecs)
 end
 
 
-# Galilean Monte Carlo
- function do_single_walker_GMC!(config::ase.atoms,nWalk::Int64,model,E_max)
-    initialConfig = deepcopy(config)
-    oldEnergy = ase.eval_energy(config,model)
-    ase.DirectToCartesian!(config)
-    println("energy at start")
-    println(oldEnergy)
-    newEnergy = 1e6
-    dt = 0.1
-    
-#    velocities = [[zeros(SVector{3}) for i = 1:length(config.atomicBasis[j])] for j = 1:config.order]
-#    for j = 1:config.order, i = 1:1:length(config.atomicBasis[j])
-#        randVel = convert(SVector{3},(  2 * rand(3) .- 1.0))
-#        velocities[j][i] =randVel/norm(randVel)
-#    end
-    displacements = get_random_displacements(config.nType)
-    forces = [[zeros(SVector{3}) for x = 1:length(config.atomicBasis[n])] for n = 1:length(config.atomicBasis)]
-    #display(velocities)
-    for iWalk = 1:nWalk
-        last_good_positions = deepcopy(config.atomicBasis)
-        last_good_displacements = deepcopy(displacements)
-        println("iWalk: ", iWalk)
-        println(config.coordSys)
-        display(config.atomicBasis[1][1])
-        config.atomicBasis += displacements  # Propogate the postions forward
-        println("after movement")
-        println(config.coordSys)
-        display(config.atomicBasis[1][1])
-        newEnergy = ase.eval_energy(config,model)  # Calculate the new energies
-        ase.DirectToCartesian!(config)
-        #println("new locations: ")
-        #display(config.atomicBasis)
-        println("newEnergy: ", newEnergy)
-        if newEnergy > E_max  # If we went uphill, we need to try and re-direct the velocites in the direction of the net force.
-            println("Redirecting....----------------------------------->")
-            for (iType,aType) in enumerate(config.atomicBasis), (iAtom,atom) in enumerate(aType)  #Loop over the different atom types.
-                forces[iType][iAtom] = ase.gradientForce(model,config,@SVector[iType,iAtom],@SVector[2,2,2])
-            end
-            nHat = [x ./ norm.(x) for x in forces]
-#            println("velocity")
-#            display(velocities[1][1])
-#            display(nHat[1][1])
-            for j = 1:config.order, i = 1:length(config.atomicBasis[j])
-                @inbounds displacements[j][i] -= (2 * (displacements[j][i]' * nHat[j][i])) * nHat[j][i]
-            end
-            energy_after_deflection = ase.eval_energy(config,model)
-            if energy_after_deflection > E_max
-                println("Deflection was not successful, reverting to original locations and reversing the displacements")
-                config.atomicBasis = last_good_positions
-                displacements = -1.0 * last_good_displacements
-            else
-                println("Deflection was successful")
-            end
-            #            println("after deflection")
- #           display(velocities[1][1])
-#            dots = [[velocities[j][i]' * nHat[j][i] * nHat[j][i] for i =1:length(config.atomicBasis[j])] for j = 1:config.order]
-            #println("dots")
-            #display(dots)
- #           velocities = velocities - 2 * dots
-        end
-    end
 
-    if newEnergy > oldEnergy
-        return initialConfig
-    else
-        return config
-    end
-end
 
 
 
