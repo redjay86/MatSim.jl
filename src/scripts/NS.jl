@@ -1,6 +1,5 @@
 
-
-cd("/Users/legoses/OneDrive - BYU-Idaho/codes/MatSim/src/libraries/")
+cd("C:\\Users\\rexja\\OneDrive - BYU-Idaho\\Classes\\Nelson Research Group\\MatSim.jl\\src\\libraries")
 push!(LOAD_PATH,pwd())
 
 using ase
