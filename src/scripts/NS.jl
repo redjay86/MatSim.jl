@@ -3,7 +3,7 @@
 cDir = @__DIR__
 cd(cDir)
 push!(LOAD_PATH,joinpath(cDir,"../libraries"))
-cd("C:\\Users\\rexja\\OneDrive - BYU-Idaho\\Classes\\Nelson Research Group\\MatSim.jl\\src\\libraries")
+#cd("C:\\Users\\rexja\\OneDrive - BYU-Idaho\\Classes\\Nelson Research Group\\MatSim.jl\\src\\libraries")
 push!(LOAD_PATH,pwd())
 
 using ase
