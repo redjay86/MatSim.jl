@@ -101,8 +101,8 @@ function gss(file,model,species;readend = 100)
 #        strN = idx - 15
 #        eStruct =  EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
 #        println(idx)
-        atoms = ase.fromEnum(file,idx,String.(species))
-#        atoms = ase.fromEnum(file,idx,["Na","Na"])
+        atoms = ase.from_enum(file,idx,String.(species))
+#        atoms = ase.from_enum(file,idx,["Na","Na"])
         #display(atoms)
 
 #        atoms = ase.atoms(enum,eStruct,["Ag","Pt"],mink=true)
@@ -374,7 +374,7 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
         if occursin("#--",line)
             thisCrystal = ase.fromPOSCAR(cLines,species,overwriteLatPar = overwriteLatPar)
             if lowercase(energyType) == "peratom"
-                thisCrystal.FP_total_energy = parse(Float64,cLines[end]) * ase.nAtoms(thisCrystal)
+                thisCrystal.energies[1] = parse(Float64,cLines[end]) * thisCrystal.nAtoms
 #                if foundPures
 #                    println("calculating formation energy!")
 #                    println(thisCrystal.formationEnergyFP)
@@ -403,7 +403,7 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
             else 
                 error("Can't recognize the first line of structures.in")
             end
-            if !isnan(thisCrystal.FP_total_energy)
+            if !isnan(thisCrystal.energies[1])
                 push!(data,thisCrystal)
             end
             cLines = Vector{String}()
