@@ -206,112 +206,8 @@ function tune_step_sizes!(NS,model::LennardJones.model)
             error("Taking too long")
         end
     end
-        
+      
 
-#    possible = [do_cell_volume_step, do_cell_shear_step, do_cell_stretch_step, do_atoms_step]
-#    # Loop over the number of random walks to take.
-#    n_try = walk_params.n_single_walker_steps
-#    n_accept = 0
-#    idx = 0
-#    acceptance_rates = Dict("stretch"=>0//n_try,"shear"=>0//n_try,"volume"=>0//n_try, "atoms"=>0//n_try)
-#
-#    orig_config = deepcopy(atoms)
-##    volume_accept_rate = 0//n_try
-##    while volume_accept_rate > 1//2  || volume_accept_rate < 1//4
-##        n_accept = 0
-##        for i = 1:walk_params.n_single_walker_steps
-##            (__,n_accept_iter) = do_cell_volume_step(atoms,model,walk_params,E_max )
-##            n_accept += n_accept_iter
-##        end
-##        volume_accept_rate = n_accept/n_try
-##        if volume_accept_rate > 1//2
-##            walk_params.volume_step_size *= 1.05
-##        elseif volume_accept_rate < 1//4
-##            walk_params.volume_step_size *= 0.95
-##        end
-##        println("Current step size volume: ", walk_params.volume_step_size)
-##        println("Current accept rate: ", volume_accept_rate)
-##    end
-##
-##
-##    shear_accept_rate = 0//n_try
-##    while shear_accept_rate > 1//2  || shear_accept_rate < 1//4
-##        n_accept = 0
-##        for i = 1:walk_params.n_single_walker_steps
-##            (__,n_accept_iter) = do_cell_shear_step(atoms,model,walk_params,E_max )
-##            n_accept += n_accept_iter
-##        end
-##        shear_accept_rate = n_accept/n_try
-##        if shear_accept_rate > 1//2
-##            walk_params.shear_step_size *= 1.05
-##        elseif shear_accept_rate < 1//4
-##            walk_params.shear_step_size *= 0.95
-##        end
-##        println("Current step size shear: ", walk_params.shear_step_size)
-##        println("Current accept rate: ", shear_accept_rate)
-##    end
-##
-##    stretch_accept_rate = 0//n_try
-##    while stretch_accept_rate > 1//2  || stretch_accept_rate < 1//4
-##        n_accept = 0
-##        for i = 1:walk_params.n_single_walker_steps
-##            (__,n_accept_iter) = do_cell_stretch_step(atoms,model,walk_params,E_max )
-##            n_accept += n_accept_iter
-##        end
-##        stretch_accept_rate = n_accept/n_try
-##        if stretch_accept_rate > 1//2
-##            walk_params.stretch_step_size *= 1.05
-##        elseif stretch_accept_rate < 1//4
-##            walk_params.stretch_step_size *= 0.95
-##        end
-##        println("Current step size stretch: ", walk_params.stretch_step_size)
-##        println("Current accept rate: ", stretch_accept_rate)
-##    end    
-#
-#
-#
-#    atom_accept_rate = 0//n_try
-#    index = 0
-#    while atom_accept_rate > 1//2  || atom_accept_rate < 1//4
-#        index += 1
-#        n_accept = 0
-#        for i = 1:walk_params.n_single_walker_steps
-#            (__,n_accept_iter) = do_atoms_step(atoms,model,walk_params,E_max, KE_max = walk_params.KE_max )
-#            n_accept += n_accept_iter
-#        end
-#        atom_accept_rate = n_accept//n_try
-#        if atom_accept_rate > 1//2
-#            walk_params.MC_atom_step_size *= 1.05
-#        elseif atom_accept_rate < 1//4
-#            walk_params.MC_atom_step_size *= 0.95
-#        end
-#        atoms = deepcopy(orig_config)
-#        println("Current step size atom: ", walk_params.MD_time_step)
-#        println("Current accept rate: ", atom_accept_rate, "<--------------------------------------------------------->")
-#        if index > 100
-#            error("Too long")
-#        end
-#    end    
-            #    for iWalk in 1:walk_params.n_single_walker_steps
-
-   # for i =1:10 # How many steps should we take to do this?
-   #     idx += 1
-#  #      println("Current Energy", ase.eval_energy(atoms,model))
-   #     move = rand(1:length(possible))
-   #     (tried,accepted) = possible[move](atoms,model,walk_params,E_max)
-   #     acceptance_rates[string(possible_move)[9:end-5]] += accepted//n_try
-#  #      n_try += n_iter_try
-#  #      n_accept += n_iter_accept
-   #     println("Walk Type: ", move)
-   #     println("Index: ", idx)
-   #     println("n_accept: ", n_accept)
-   #     println("n_try: ", n_try)
-   #     if idx > 300
-   #         error("Too long.. Stopping")
-   #     end
-   #     
-   #     
-   # end
 
 end
 
@@ -358,9 +254,9 @@ function run_NS(NS::NS,LJ::LennardJones.model)
         keeps = perms[NS.n_cull + 1: end]  # 2 allocations
         println("Energy cutoff")
         display(E_max)
-        println("PE (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,do_KE = false))
+        println("PE (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,do_KE = false,force_recalc = true))
         println("KE (lowest energy cull): ", ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
-        println("Total (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ))
+        println("Total (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,force_recalc = true))
 
         if i %12 == 0  # 12 is pretty arbitrary.. Need a better way to see if need to re-tune
             println("Stopping to retune step sizes")
@@ -397,18 +293,24 @@ end
 
 
 function walk_single_walker!(atoms::ase.atoms, model, walk_params::NS_walker_params,E_max,cell_P)
-    possible = (do_atoms_step,do_cell_shear_step,do_cell_stretch_step,do_cell_volume_step)#,do_atoms_step)#, do_cell_stretch_step)#, do_atoms_step]
-    # Loop over the number of random walks to take.
-    n_try = 0
-    n_accept = 0
     idx = 0
-#    stretch_acceptance = ()
-    atomsCount = 1
-    typeLookup = Dict( 1 => "atoms", 2=>"shear",3=>"stretch",4=>"volume")
+
+    atoms_cutoff =  walk_params.n_atom_steps/(walk_params.n_atom_steps + walk_params.n_cell_volume_steps + walk_params.n_cell_shear_steps + walk_params.n_cell_stretch_steps)
+    volume_cutoff = atoms_cutoff + walk_params.n_cell_volume_steps/(walk_params.n_atom_steps + walk_params.n_cell_volume_steps + walk_params.n_cell_shear_steps + walk_params.n_cell_stretch_steps)
+    shear_cutoff = volume_cutoff + walk_params.n_cell_shear_steps/(walk_params.n_atom_steps + walk_params.n_cell_volume_steps + walk_params.n_cell_shear_steps + walk_params.n_cell_stretch_steps)
+    stretch_cutoff = shear_cutoff + walk_params.n_cell_stretch_steps/(walk_params.n_atom_steps + walk_params.n_cell_volume_steps + walk_params.n_cell_shear_steps + walk_params.n_cell_stretch_steps)
+
+    typeLookup = Dict( 1 => "atoms", 2=>"volume",3=>"shear",4=>"stretch")
     acceptance_rates = Dict{String,Tuple{Int64,Int64}}("stretch"=>(0,0),"shear"=>(0,0),"volume"=>(0,0), "atoms"=>(0,0))
     for iWalk in 1:walk_params.n_single_walker_steps
         idx += 1
-        move = rand(1:length(possible))
+ 
+        # Select a random move based on the provided weightings
+
+        rand_move = rand()
+
+        
+#            move = rand(1:length(possible))
         #if move == 1
         #    atomsCount += 1
         #end
@@ -422,18 +324,24 @@ function walk_single_walker!(atoms::ase.atoms, model, walk_params::NS_walker_par
             println(E_max)
             error("Failsafe: energy went above E_max!")
         end
-        if move == 1
-#            continue
+        
+        if rand_move < atoms_cutoff
+            move = 1
             tried,accepted = do_atoms_step(atoms,model,walk_params,E_max,cell_P)
-        elseif move == 2
-            tried,accepted = do_cell_shear_step(atoms,model,walk_params,E_max,cell_P)
-        elseif move == 3
-            tried,accepted = do_cell_stretch_step(atoms,model,walk_params,E_max,cell_P)
-        elseif move == 4
+        elseif rand_move < volume_cutoff
+            move = 2
             tried,accepted = do_cell_volume_step(atoms,model,walk_params,E_max,cell_P)
+        elseif rand_move < shear_cutoff
+            move = 3
+            tried,accepted = do_cell_shear_step(atoms,model,walk_params,E_max,cell_P)
+        elseif rand_move < stretch_cutoff
+            move = 4
+            tried,accepted = do_cell_stretch_step(atoms,model,walk_params,E_max,cell_P)
         else
-            error("out of bounds")
+            error("Don't know which kind of move to do?")
         end
+
+
             #        tried,accepted = possible[move](atoms,model,walk_params,E_max)
         #if idx == 200
         #    println("atomscount = $atomsCount")
