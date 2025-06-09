@@ -55,6 +55,25 @@ const element_volume =Dict{String,Float64}("H"=>37.2958,"He"=>32.1789,"Li"=>21.2
 #config(list::Vector{String}, species::Vector{String}; overwriteLatPar = false) = fromPOSCAR(list, species,overwriteLatPar = overwriteLatPar)
 #config(filePath::String, strN::Int64,species::Vector{String};mink::Bool=true) = from_enum(enum,enumStruct,species,mink=mink)
 
+
+function copy_atoms(atm::atoms)
+    return atoms(
+        atm.title,                          # Immutable, direct assignment
+        atm.latpar,                         # Immutable, direct assignment
+        MMatrix{3,3,Float64}(atm.lVecs),    # Deep copy mutable matrix
+        copy(atm.nType),                    # Deep copy mutable vector
+        atm.nAtoms,                         # Immutable, direct assignment
+        copy(atm.coordSys),                 # Deep copy vector of immutable strings
+        copy(atm.positions),                 # Deep copy vector of immutable SVectors
+        copy(atm.velocities),                # Deep copy vector of immutable SVectors
+        copy(atm.masses),                   # Deep copy mutable vector
+        copy(atm.atomTypes),                # Deep copy mutable vector
+        copy(atm.species),                  # Deep copy vector of immutable strings
+        MVector{2,Float64}(atm.energies),   # Deep copy mutable vector
+        atm.order,                          # Immutable, direct assignment
+        copy(atm.lj_vec)                    # Deep copy mutable vector
+    )
+end
 # 0 allocations
 function index_to_integer(iType,jType,order)
     a = iType > jType ? jType : iType#minimum((iType,jType))
@@ -996,36 +1015,36 @@ end
     
 
 
-function gradientForce(model,atoms,atom::Int64; eps = 1e-3)
+function gradientForce(model,atoms,atom::Int64,cell_P; eps = 1e-3)
     fVec = zeros(MVector{3,Float64})
 
     # Calculate x-component of force
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(eps,0,0)
-    energyOne = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyOne = eval_energy(atoms,model,P = cell_P,do_KE = false,force_recalc = true)
     DirectToCartesian!(atoms)
     atoms.positions[atom] += SVector{3,Float64}(2 * eps,0,0)
-    energyTwo = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyTwo = eval_energy(atoms,model,P = cell_P,do_KE = false,force_recalc = true)
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(eps,0,0)  # Put it back where it was.
     fVec[1] = -(energyTwo - energyOne)/(2 * eps)
 
     # Calculate the y-component of the force
     atoms.positions[atom] -= SVector{3,Float64}(0,eps,0)
-    energyOne = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyOne = eval_energy(atoms,model,P = cell_P,do_KE = false,force_recalc = true)
     DirectToCartesian!(atoms)
     atoms.positions[atom] += SVector{3,Float64}(0,2 * eps,0)
-    energyTwo = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyTwo = eval_energy(atoms,model,P = cell_P,do_KE = false,force_recalc = true)
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(0,eps,0)  # Put it back where it was.
     fVec[2] = -(energyTwo - energyOne)/(2 * eps)
 
     # Find z-component of force
     atoms.positions[atom] -= SVector{3,Float64}(0,0,eps)  # Move atom downward
-    energyOne = eval_energy(atoms,model,do_KE = false,force_recalc = true)        # Calculate energy
+    energyOne = eval_energy(atoms,model,P = cell_P,do_KE = false,force_recalc = true)        # Calculate energy
     DirectToCartesian!(atoms)
     atoms.positions[atom] += SVector{3,Float64}(0,0,2 * eps)  # Move atom upward
-    energyTwo = eval_energy(atoms,model,do_KE = false,force_recalc = true)           # Calculate energy
+    energyTwo = eval_energy(atoms,model,P = cell_P,do_KE = false,force_recalc = true)           # Calculate energy
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(0,0,eps)  # Put it back where it was.
     fVec[3] = -(energyTwo - energyOne)/(2 * eps)      # Calculate component of gradient
@@ -1076,9 +1095,9 @@ function eval_forces!(atoms,model,forces)
 end
 
 # Galilean Monte Carlo
-function do_GMC!(config::atoms,model,walk_params,E_max)
+function do_GMC!(config::atoms,model,walk_params,E_max,cell_P)
 #    initialConfig = deepcopy(config)
-    oldEnergy = ase.eval_energy(config,model)
+    oldEnergy = ase.eval_energy(config,model,P = cell_P,force_recalc = true)
     ase.DirectToCartesian!(config)
 
     displacements = get_random_displacements(length(config.positions),walk_params.MC_atom_step_size)
@@ -1088,7 +1107,7 @@ function do_GMC!(config::atoms,model,walk_params,E_max)
     n_reflect = 0
     n_reverse = 0
     n_accept = 0
-    begin_energy = eval_energy(config,model,force_recalc = true)
+    begin_energy = eval_energy(config,model,P = cell_P,force_recalc = true)
     for iWalk = 1:walk_params.atom_traj_length
 #slow        last_good_positions = deepcopy(config.positions)
 #slow        last_good_displacements = deepcopy(displacements)
@@ -1099,7 +1118,7 @@ function do_GMC!(config::atoms,model,walk_params,E_max)
             println(displacements)
             error("Found NaNs")
         end
-        energy_after_displacement = eval_energy(config,model,force_recalc = true)  # Calculate the new energies
+        energy_after_displacement = eval_energy(config,model,P = cell_P,force_recalc = true)  # Calculate the new energies
         ase.DirectToCartesian!(config)
         if energy_after_displacement > E_max  # If we went uphill, we need to try and re-direct the displacements in the direction of the net force.
             eval_forces!(config,model,forces)
@@ -1119,7 +1138,7 @@ function do_GMC!(config::atoms,model,walk_params,E_max)
             config.positions .+= displacements
             n_reflect += 1
             mapIntoCell!(config)
-            energy_after_deflection = ase.eval_energy(config,model,force_recalc = true)
+            energy_after_deflection = ase.eval_energy(config,model,P = cell_P,force_recalc = true)
             if energy_after_deflection > E_max  # Reverse
 #                println("Reversing!!")
 #slow                config.positions .= deepcopy(last_good_positions)
@@ -1159,7 +1178,7 @@ end
 
 # Perform a random walk on a single configuration subject to the constraint that the total energy be less than the cutoff
 # Not walking using the force vector (GMC), just random walks.  This may not work well for some systems.
-function do_MC!(atoms::atoms,model,walk_params,E_max) 
+function do_MC!(atoms::atoms,model,walk_params,E_max,cell_P) 
     n_accept = 0
     n_steps = walk_params.atom_traj_length * atoms.nAtoms  # Total number of steps in the random walk.
     for iWalk in 1:walk_params.atom_traj_length
@@ -1167,7 +1186,7 @@ function do_MC!(atoms::atoms,model,walk_params,E_max)
             randDisplace = (2*rand(SVector{3,Float64}) .- 1.0) * walk_params.MC_atom_step_size
             atoms.positions[iAtom] += randDisplace
             mapIntoCell!(atoms)
-            newEnergy = eval_energy(atoms,model,force_recalc = true) # Want total energies for NS
+            newEnergy = eval_energy(atoms,model,P = cell_P,force_recalc = true) # Want total energies for NS
             if newEnergy > E_max  # reject move
                 atoms.positions[iAtom] -= randDisplace
             else # Otherwise, update the energy 
@@ -1361,7 +1380,7 @@ end
 # copying the positions and velocities at the beginning of the walk, and then copying them back at the end if the walk is rejected.
 """
 
-function do_MD!(atoms::atoms, model, walk_params;E_cutoff = NaN,KE_cutoff = NaN)
+function do_MD!(atoms::atoms, model, walk_params,cell_P;E_cutoff = NaN,KE_cutoff = NaN)
     # Just copied over from MD. Needs checked!!!
 
     N = length(atoms.positions)
@@ -1369,7 +1388,7 @@ function do_MD!(atoms::atoms, model, walk_params;E_cutoff = NaN,KE_cutoff = NaN)
     pre_positions = deepcopy(atoms.positions)
     pre_velocities = deepcopy(atoms.velocities)
     idx = 1
-    begin_energy = eval_energy(atoms,model,force_recalc = true)
+    begin_energy = eval_energy(atoms,model,P = cell_P,force_recalc = true)
     begin_KE = eval_KE(atoms)
     for i=1:walk_params.atom_traj_length
         eval_forces!(atoms,model,forces)
@@ -1395,7 +1414,7 @@ function do_MD!(atoms::atoms, model, walk_params;E_cutoff = NaN,KE_cutoff = NaN)
 @.        atoms.velocities += forces / atoms.masses * 0.5 * walk_params.MD_time_step
   #      display(forces)
     end 
-    final_energy = eval_energy(atoms,model, force_recalc = true)
+    final_energy = eval_energy(atoms,model,P = cell_P, force_recalc = true)
     final_KE = eval_KE(atoms)
    # println("Begin Total Energy:-------------------------------------> ", begin_energy)
    # println("Final Total Energy: ", final_energy)

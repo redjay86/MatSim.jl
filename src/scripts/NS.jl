@@ -14,3 +14,4 @@ LJ_average = LennardJones.get_LJ_averages(resultsPath)
 myNS = nSampling.initialize(input["params"],LJ_average);# 10k allocations.  Need to optimize this.
 nSampling.tune_step_sizes!(myNS,LJ_average)
 nSampling.run_NS(myNS,LJ_average)
+
