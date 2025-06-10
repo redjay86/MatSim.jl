@@ -128,7 +128,7 @@ function initialize(inputs,model)
         else
             ase.set_velocities(configs[iConfig],0.0)
         end
-        configs[iConfig].energies[2] = ase.eval_energy(configs[iConfig],model,P = inputs["cell_P"],force_recalc = true)
+        configs[iConfig].energies[2] = ase.eval_energy(configs[iConfig],model,P = inputs["cell_P"])
     end
     walker_params.n_single_walker_steps = save_n_steps
     return NS(inputs["n_walkers"],inputs["n_cull"],inputs["n_iter"],inputs["cell_P"],inputs["eps"],
@@ -254,32 +254,28 @@ function run_NS(NS::NS,LJ::LennardJones.model)
         keeps = perms[NS.n_cull + 1: end]  # 2 allocations
         println("Energy cutoff")
         display(E_max)
-        println("PE (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,do_KE = false,force_recalc = true))
+        println("PE (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,do_KE = false))
         println("KE (lowest energy cull): ", ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
-        println("Total (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,force_recalc = true))
+        println("Total (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P))
 
         if i %12 == 0  # 12 is pretty arbitrary.. Need a better way to see if need to re-tune
             println("Stopping to retune step sizes")
-            energies_before = [ase.eval_energy(walker, LJ, P = NS.cell_P, force_recalc = true) for walker in NS.walkers]
+            energies_before = [ase.eval_energy(walker, LJ, P = NS.cell_P) for walker in NS.walkers]
             tune_step_sizes!(NS,LJ)
-            energies_after = [ase.eval_energy(walker, LJ, P = NS.cell_P,force_recalc = true) for walker in NS.walkers]
+            energies_after = [ase.eval_energy(walker, LJ, P = NS.cell_P) for walker in NS.walkers]
             if !isapprox(energies_before,energies_after, atol=1e-5)
                 error("Failsafe: tune_step_sizes caused at least one configuration to change")
             end
             println("Done with tune up------------------------------------------------->")
         end
-#        display(E_max - ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
         for replace_walker in forDelete
             #Copy one of the configs that didn't get thrown out as the starting point
-            #println("Initializing random walk to replace configuration ", i)
-            #display(sample(keeps))
 #            NS.walkers[replace_walker] = deepcopy(NS.walkers[sample(keeps,1)[1]])  # ~ 50 allocations
             NS.walkers[replace_walker] = ase.copy_atoms(NS.walkers[sample(keeps,1)[1]])  # ~ 50 allocations
             #println("E-max for this walker: ", E_max)
-            #println("Starting energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ,force_recalc = true))
+            #println("Starting energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ))
             walk_single_walker!(NS.walkers[replace_walker],LJ,NS.walker_params,E_max,NS.cell_P)
-            #println("Ending energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ,force_recalc = true))
-#            randomWalk!(NS.walkers[replace_walker],LJ,energyCutoff,NS.n_iter)
+            #println("Ending energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ))
         end
         i += 1
         V = ((NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1))^i
@@ -309,13 +305,7 @@ function walk_single_walker!(atoms::ase.atoms, model, walk_params::NS_walker_par
 
         rand_move = rand()
 
-        
-#            move = rand(1:length(possible))
-        #if move == 1
-        #    atomsCount += 1
-        #end
-#        println("Doing move: ", typeLookup[move])
-        before_energy = ase.eval_energy(atoms,model,P = cell_P,force_recalc = true)
+        before_energy = ase.eval_energy(atoms,model,P = cell_P)
 
         if before_energy > E_max
             println("Energy before move is greater than E_max")
@@ -347,7 +337,7 @@ function walk_single_walker!(atoms::ase.atoms, model, walk_params::NS_walker_par
         #    println("atomscount = $atomsCount")
         #    return nothing
         #end
-#        after_energy = ase.eval_energy(atoms,model,force_recalc = true)
+#        after_energy = ase.eval_energy(atoms,model)
 #        if after_energy > E_max
 #            println("iWalk = $iWalk")
 #            println(after_energy)
@@ -376,7 +366,6 @@ function do_atoms_step(atoms::ase.atoms, model,walk_params,E_max,cell_P) #atoms:
 end
 
 function do_cell_shear_step(atoms::ase.atoms, model,walk_params,E_max,cell_P;execute = true,check_energy = true)
-  #  println("Doing cell shear")
     (p,T) = propose_shear_step(atoms,walk_params.shear_step_size)
     if do_cell_step!(atoms,p,T,E_max,walk_params,model,cell_P,execute = execute,check_energy=check_energy)
         return (1,1)
@@ -386,11 +375,7 @@ function do_cell_shear_step(atoms::ase.atoms, model,walk_params,E_max,cell_P;exe
 end
 
 function do_cell_stretch_step(atoms::ase.atoms, model,walk_params,E_max,cell_P;execute=true,check_energy = true)
-#    println("Doing cell stretch")
     p,T = propose_stretch_step(atoms,walk_params.stretch_step_size)
-#    p = 1.0
-#   T = SMatrix{3,3,Float64,9}(UniformScaling(1.0))
-#    return T
     if do_cell_step!(atoms,p,T,E_max,walk_params,model,cell_P,execute = execute,check_energy=check_energy)
         return 1,1
     else
@@ -411,65 +396,23 @@ function do_cell_volume_step(atoms::ase.atoms, model,walk_params,E_max,cell_P;ex
 end
 
 function do_cell_step!(atoms,p_accept,T,E_max,ns_params,model,cell_P;execute = true,check_energy = true)
-    #nAtoms = length(atoms.positions) # Don't need this...
     if (p_accept < 1.0) && (rand() > p_accept)
-#        println("rejected for probability")
         return false   
     end
 
     new_cell = T * SMatrix(atoms.lVecs)
-#    println("new cell right after definition")
-#    display(T)
-#    display(new_cell)
 
-#    new_cell = SMatrix{3,3,Float64,9}(undef)  # Allocation
-#    mul!(new_cell,atoms.lVecs,T)
-#    newCell = atoms.lVecs * T
     newVolume = ase.cell_volume(new_cell * atoms.latpar)#atoms.latpar .* new_cell)  # Allocation from the multiplication ... fixed with mul!
-#    println("Proposed Volume: ", newVolume)
-#    println("Current Volume", ase.cell_volume(atoms))
-#    println("Volume limit: ",ns_params.max_volume_per_atom *nAtoms)
     if newVolume > ns_params.max_volume_per_atom * atoms.nAtoms
-#        println("Volume too large")
-#        println("new volume: ", newVolume)
-#        println("old volume: ", ase.cell_volume(atoms.latpar * atoms.lVecs))
-#        println("Max Volume: ", ns_params.max_volume_per_atom * nAtoms)
         return false
     end
     if ase.min_aspect_ratio(new_cell) < ns_params.min_aspect_ratio
-
- #       println("Aspect ratio too small")
- #       println("new aspect ratio: ", ase.min_aspect_ratio(new_cell))
- #       println("old aspect ratio: ", ase.min_aspect_ratio(atoms.lVecs))
- #       println("Max aspect ratio: ", ns_params.min_aspect_ratio)
         return false
     end
     if check_energy
-#        println("checking energy")
-#         oldCell = deepcopy(atoms.lVecs)
-#        oldPositions = atoms.positions  # I don't think I need this. set_cell! should take care of the undoing of positions
-   #     println("before")
-    #    display(ase.eval_energy(atoms,model))
-    
-#        atoms.lVecs = new_cell
-    #    println("before set cell")
-    #    display(atoms.lVecs)
-  #      ase.DirectToCartesian!(atoms)
-  #      display(atoms.positions)
-#        println("setting it to this...")
-#        display(new_cell)
         ase.set_cell!(atoms,new_cell,scale_atoms = true)
-  #      println("after set cell")
-#        display(atoms.lVecs)
-  #      display(atoms.positions)
- #       println("after ")
- #       display(ase.eval_energy(atoms,model,force_recalc = true))
-        newEnergy = ase.eval_energy(atoms,model,P = cell_P,force_recalc = true)
-  #      println("New Energy right before energy check: ", newEnergy)
+        newEnergy = ase.eval_energy(atoms,model,P = cell_P)
         if newEnergy < E_max
- #           println("Accepted")
-            # For tuning the step sizes we want to check to see if the move will be accepted 
-            # but not actually do it.
             if execute
                 atoms.energies[2] = newEnergy
             else
@@ -478,14 +421,8 @@ function do_cell_step!(atoms,p_accept,T,E_max,ns_params,model,cell_P;execute = t
             end
             return true
         else
- #           println("Rejected for energy")
-     #       println("New Energy:", newEnergy)
-     #       println("E-max: ", E_max)
             old_cell = inv(T) * new_cell
             ase.set_cell!(atoms,old_cell,scale_atoms = true)
-#            println("after resettng to original cell")
-#            display(atoms.lVecs)
-            #            atoms.positions .= oldPositions # Can I just set cell with scale_atoms = true again?
             return false
         end
     else
@@ -524,11 +461,6 @@ end
 function propose_shear_step(atoms::ase.atoms,stepsize::Float64)
     rmv_vec = rand(1:3)
     remaining_vecs = rmv_vec == 1 ? (2,3) : rmv_vec == 2 ? (1,3) : (1,2)
-    #new_cell = copy(atoms.lVecs)
-   # new_cell = MMatrix{3,3,Float64,9}(undef)
-   # new_cell .= atoms.lVecs
-#    new_cell = buffer
-#    new_cell .= atoms.lVecs
     v1 = atoms.lVecs[:,remaining_vecs[1]]
     v2 = atoms.lVecs[:,remaining_vecs[2]]
     norm_v1 = sqrt(dot(v1,v1))
@@ -539,9 +471,6 @@ function propose_shear_step(atoms::ase.atoms,stepsize::Float64)
     if abs(dot(v1, v2)) > 1e-4
         println("v1 and v2 are not orthogonal, something is wrong.")
     end
-#    rv = MVector{2,Float64}(undef)
-#    rand!(Xoshiro(), Normal(0, stepsize), rv)
-#    rv1, rv2 = rv
     rv1 = rand(Normal(0,stepsize))
     rv2 = rand(Normal(0,stepsize))
     new_vec = atoms.lVecs[:,rmv_vec] + rv1 * v1 + rv2 * v2
@@ -557,19 +486,8 @@ function propose_shear_step(atoms::ase.atoms,stepsize::Float64)
     else
         error("BAD")
     end
-    #rv1,rv2 = rand(Normal(0,stepsize),2)
-#    new_cell[:,rmv_vec] .= atoms.lVecs[:,rmv_vec] .+ rv1 .* v1 .+ rv2 .* v2
-#    println("after", atoms.lVecs)   
     inv_lVecs = inv(SMatrix{3,3,Float64,9}(atoms.lVecs))
-#    println("Here")
-#    println(typeof(new_cell),typeof(inv_lVecs))
-   #println("new cell shear")
-   # display(new_cell)
-   # println("before shear")
-   # display(atoms.lVecs)
     transform = new_cell * inv_lVecs
-   # println("transform right after definition")
-   # display(transform)
     return 1.0,SMatrix{3,3,Float64,9}(transform)
 
 end
@@ -579,16 +497,9 @@ function propose_stretch_step(atoms::ase.atoms,stepsize::Float64)
     # Yes, I know that I don't need an atoms object to do this, but to stay consistent with the shear step, I'm going to keep it.
 
 
-#    a = stepsize .* (2 .* rand(2) .- 1)  # Get 3 random floats
-#    A = [a[1] 0  0
-#         0  a[2] 0
-#         0  0  1/a[1]/a[2]]
-#    return A
-
     rmv_vec_one = rand(1:3)
     rmv_vec_two = rand(1:3)
     if rmv_vec_one == rmv_vec_two
-        #println("found duplicate vectors, regenerating rmv_vec_two")
         rmv_vec_two = (rmv_vec_two + 1) % 3 + 1
     end
     remaining_vec = ((5 - (rmv_vec_one + rmv_vec_two)) % 3) + 1 #[x for x in 1:3 if x != rmv_vec_one && x != rmv_vec_two][1]
@@ -610,10 +521,6 @@ function propose_stretch_step(atoms::ase.atoms,stepsize::Float64)
         error("BAD")
     end
     transform = [v1 v2 v3 ]
-#    transform = zeros(MMatrix{3,3,Float64,9})
-#    transform[remaining_vec,remaining_vec] = 1.0
-#    transform[rmv_vec_one,rmv_vec_one] = exp(rv)
-#    transform[rmv_vec_two,rmv_vec_two] = exp(-rv)
     return 1.0, transform
 end
 
@@ -624,28 +531,17 @@ function do_cell_shape_walk!(atoms::ase.atoms, walker_params,cell_P)
     # I don't need an energy model to walk the cell shape, but the routine I want to use to do it
     # requires it, so I'm just initializing an empty model.
     empty_model = LennardJones.initialize_empty_model()
-    #n_try = 0
-    #n_accept = 0
     n_try = walker_params.n_single_walker_steps
     acceptance_rates = Dict("stretch"=>0//n_try,"shear"=>0//n_try,"volume"=>0//n_try)
     for i =1:walker_params.n_single_walker_steps
         shuffle!(possibilities)
         for possible_move in possibilities
-            #println(walker_params)
             
             (tried,accepted) = possible_move(atoms,empty_model,walker_params,1000.0,cell_P,check_energy = false)
             acceptance_rates[string(possible_move)[9:end-5]] += accepted//n_try
-#            n_accept += accepted
-#            n_try += tried
-            #            if (p_accept < 1.0) & (rand() > p_accept)
-#                atoms.lVecs = transform * atoms.lVecs
-#                ase.DirectToCartesian!(atoms)
-           #     println("Accepted")
-#            end
         end
     end
     return atoms
-#    println("tried: ", walker_params.n_single_walker_steps, "Accepted: ",acceptance_rates)
 end
 
 
