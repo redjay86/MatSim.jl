@@ -1,6 +1,6 @@
 
 params:
-  n_Atoms: [5, 3]
+  n_Atoms: [12, 20]
   min_atom_separation: 1.5
   n_walkers: 20 # Number of walkers in the pool.
   n_cull: 6  # Number of walkers to remove at each iteration.

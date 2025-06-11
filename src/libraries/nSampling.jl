@@ -327,7 +327,7 @@ function reverse_sort_energies(NS)
 end
 
 function run_NS(NS::NS,LJ::LennardJones.model)
-
+    println("Reading the file")
     V = (NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1)
     cDir = pwd()
 
@@ -339,56 +339,58 @@ function run_NS(NS::NS,LJ::LennardJones.model)
     write(io, "eps = " * string(NS.eps) * "\n")
     perms = zeros(MVector{length(NS.walkers),Int})
 #    while V > NS.eps
-    for i= 1:100
-        println(i)
-        println("V = ", V)
-        ## Find the top Kr highest energies
-        
-        sortperm!(perms,[i.energies[2] for i in NS.walkers])  # 4 allocations
-        perms = reverse(perms) # 1 allocation
-        #perms =  reverse(sortperm([i.energies[2] for i in NS.walkers]))
-       # println(sort([i.energyPerAtomModel for i in NS.walkers]))
-        E_max = NS.walkers[perms[NS.n_cull]].energies[2]  # 3 allocations
-        # Which configs need to be thrown out.
-        forDelete = perms[1:NS.n_cull]  # 2 allocations
-        # Which configs can be kept
-        keeps = perms[NS.n_cull + 1: end]  # 2 allocations
-        println("Energy cutoff")
-        display(E_max)
-        println("PE: ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,do_KE = false))
-        println("KE: ", ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
-        println("Total: ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ))
+    for i= 1:500
+        elapsed = @elapsed begin 
+            println(i)
+            println("V = ", V)
+            ## Find the top Kr highest energies
+            
+            sortperm!(perms,[i.energies[2] for i in NS.walkers])  # 4 allocations
+            perms = reverse(perms) # 1 allocation
+            #perms =  reverse(sortperm([i.energies[2] for i in NS.walkers]))
+        # println(sort([i.energyPerAtomModel for i in NS.walkers]))
+            E_max = NS.walkers[perms[NS.n_cull]].energies[2]  # 3 allocations
+            # Which configs need to be thrown out.
+            forDelete = perms[1:NS.n_cull]  # 2 allocations
+            # Which configs can be kept
+            keeps = perms[NS.n_cull + 1: end]  # 2 allocations
+            println("Energy cutoff")
+            display(E_max)
+            println("PE: ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,do_KE = false))
+            println("KE: ", ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
+            println("Total: ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ))
 
-        if i %12 == 0  # 12 is pretty arbitrary.. Need a better way to see if need to re-tune
-            println("Stopping to retune step sizes")
-            energies_before = [ase.eval_energy(walker, LJ, force_recalc = true) for walker in NS.walkers]
-            tune_step_sizes!(NS,LJ)
-            energies_after = [ase.eval_energy(walker, LJ, force_recalc = true) for walker in NS.walkers]
-            if !isapprox(energies_before,energies_after, atol=1e-5)
-                error("tune step sizes changed configurations")
+            if i %12 == 0  # 12 is pretty arbitrary.. Need a better way to see if need to re-tune
+                println("Stopping to retune step sizes")
+                energies_before = [ase.eval_energy(walker, LJ, force_recalc = true) for walker in NS.walkers]
+                tune_step_sizes!(NS,LJ)
+                energies_after = [ase.eval_energy(walker, LJ, force_recalc = true) for walker in NS.walkers]
+                if !isapprox(energies_before,energies_after, atol=1e-5)
+                    error("tune step sizes changed configurations")
+                end
+                println("Done with tune up------------------------------------------------->")
             end
-            println("Done with tune up------------------------------------------------->")
+    #        display(E_max - ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
+            for replace_walker in forDelete
+                #Copy one of the configs that didn't get thrown out as the starting point
+                #println("Initializing random walk to replace configuration ", i)
+                #display(sample(keeps))
+                NS.walkers[replace_walker] = deepcopy(NS.walkers[sample(keeps,1)[1]])  # ~ 50 allocations
+                #println("E-max for this walker: ", E_max)
+                #println("Starting energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ,force_recalc = true))
+                walk_single_walker!(NS.walkers[replace_walker],LJ,NS.walker_params,E_max)
+                #return nothing            
+                #println("Ending energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ,force_recalc = true))
+    #            randomWalk!(NS.walkers[replace_walker],LJ,energyCutoff,NS.n_iter)
+            end
+            i += 1
+            V = ((NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1))^i
+            write(io,string(V) * " ")
+            write(io,string(E_max) * " \n")
         end
-#        display(E_max - ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
-        for replace_walker in forDelete
-            #Copy one of the configs that didn't get thrown out as the starting point
-            #println("Initializing random walk to replace configuration ", i)
-            #display(sample(keeps))
-            NS.walkers[replace_walker] = deepcopy(NS.walkers[sample(keeps,1)[1]])  # ~ 50 allocations
-            #println("E-max for this walker: ", E_max)
-            #println("Starting energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ,force_recalc = true))
-            walk_single_walker!(NS.walkers[replace_walker],LJ,NS.walker_params,E_max)
-            #return nothing            
-            #println("Ending energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ,force_recalc = true))
-#            randomWalk!(NS.walkers[replace_walker],LJ,energyCutoff,NS.n_iter)
-        end
-        i += 1
-        V = ((NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1))^i
-        write(io,string(V) * " ")
-        write(io,string(E_max) * " \n")
-
+        println("Elapsed time for iteration $i: ", elapsed)
+        write(io,"$i $elapsed\n")
     end
-
     close(io)
 end
 
