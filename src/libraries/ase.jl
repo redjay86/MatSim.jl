@@ -55,6 +55,25 @@ const element_volume =Dict{String,Float64}("H"=>37.2958,"He"=>32.1789,"Li"=>21.2
 #config(list::Vector{String}, species::Vector{String}; overwriteLatPar = false) = fromPOSCAR(list, species,overwriteLatPar = overwriteLatPar)
 #config(filePath::String, strN::Int64,species::Vector{String};mink::Bool=true) = from_enum(enum,enumStruct,species,mink=mink)
 
+
+function copy_atoms(atm::atoms)
+    return atoms(
+        atm.title,                          # Immutable, direct assignment
+        atm.latpar,                         # Immutable, direct assignment
+        MMatrix{3,3,Float64}(atm.lVecs),    # Deep copy mutable matrix
+        copy(atm.nType),                    # Deep copy mutable vector
+        atm.nAtoms,                         # Immutable, direct assignment
+        copy(atm.coordSys),                 # Deep copy vector of immutable strings
+        copy(atm.positions),                 # Deep copy vector of immutable SVectors
+        copy(atm.velocities),                # Deep copy vector of immutable SVectors
+        copy(atm.masses),                   # Deep copy mutable vector
+        copy(atm.atomTypes),                # Deep copy mutable vector
+        copy(atm.species),                  # Deep copy vector of immutable strings
+        MVector{2,Float64}(atm.energies),   # Deep copy mutable vector
+        atm.order,                          # Immutable, direct assignment
+        copy(atm.lj_vec)                    # Deep copy mutable vector
+    )
+end
 # 0 allocations
 function index_to_integer(iType,jType,order)
     a = iType > jType ? jType : iType#minimum((iType,jType))
@@ -113,9 +132,9 @@ end
 """
 #function from_enum(enum::Enum,enumStruct::EnumStruct,species:: Vector{String};mink=true)
 function from_enum(file::String,strN::Int64,species:: Vector{String};mink=true)
-    enum = enumeration.read_header(file) 
-    enumStruct = enumeration.read_struct(file,strN)
-    return enumStruct
+    enum = enumeration.read_header(file) # 104 allocations
+    enumStruct = enumeration.read_struct(file,strN) # 150 allocations
+#    return nothing
 
     cardinalDirections = SMatrix{7,3,Float64,21}([0. 0. 0.
                                                  1. 0. 0.
@@ -128,19 +147,19 @@ function from_enum(file::String,strN::Int64,species:: Vector{String};mink=true)
     a,b,c,d,e,f = enumStruct.HNF[1,1],enumStruct.HNF[2,1],enumStruct.HNF[2,2],enumStruct.HNF[3,1],enumStruct.HNF[3,2],enumStruct.HNF[3,3]
     # Get atomic basis..
     nAtoms = length(enumStruct.labeling)
-    aBas = [zeros(3) for i =1:nAtoms]
+    aBas = [zeros(SVector{3,Float64}) for i =1:nAtoms]
     gIndex = zeros(Int64,nAtoms)
     iC = 0
     for iD = 1:enum.nD
         for z1 = 0:a-1, z2= Int((b * z1) / a):Int(c + (b * z1) / a) - 1, z3 = Int(z1 * (d - (e * b) / c) / a + (e * z2) / c):Int(f + z1 * (d - (e * b) / c) / a + (e * z2) / c) - 1
             iC += 1
-            temp = enum.pLV * [z1,z2,z3]
+            temp = enum.pLV * SVector(z1,z2,z3)
             temp2 = temp + enum.dVecs[iD]
-            aBas[iC] .= temp2
+            aBas[iC] = temp2
 
-            gReal = enumStruct.L * [z1,z2,z3]
+            gReal = enumStruct.L * SVector(z1,z2,z3)
 
-            g = Int.(enumStruct.L * [z1,z2,z3])
+            g = Int.(enumStruct.L * SVector(z1,z2,z3))
             if !(g ≈ gReal)
                 error("Mapping didn't work")
             end
@@ -168,7 +187,6 @@ function from_enum(file::String,strN::Int64,species:: Vector{String};mink=true)
     idx = sortperm(aType)  # Sort the type list, saving the indices
     #aBas = getPartitions(aBas[idx],nType) #Sort the atomic basis to match and then partition them by atom type.
     aType = sort(aType) .+ 1
-
     # The next two lines are to add the displacements in using the arrows string from struct_enum.out. It's not tested
     # yet and I need to verify with Gus that I'm doing it right.  Just delete the next three lines to undo it if you find that
     # it's not right.
@@ -176,7 +194,7 @@ function from_enum(file::String,strN::Int64,species:: Vector{String};mink=true)
     displacements = [cardinalDirections[i,:] for i in arrows] # Partition to the same shape as the basis list so we can easily add them.
     aBas .+= 0.1 * displacements
 
-    cellVolume = abs(cross(sLV[:,1],sLV[:,2])' * sLV[:,3])
+    cellVolume = abs(dot(cross(sLV[:,1],sLV[:,2]), sLV[:,3]) )
     
     nInteractions = Int(enum.k * (enum.k + 1)/2)
 
@@ -185,7 +203,7 @@ function from_enum(file::String,strN::Int64,species:: Vector{String};mink=true)
     lj_vec = zeros(2*nInteractions)
     masses = [0.0 for i in 1:nAtoms]
     energies = [0.0,0.0]
-    velocities = [SVector{3,Float64}(zeros(3)) for i in 1:nAtoms]
+    velocities = [(zeros(SVector{3,Float64})) for i in 1:nAtoms]
     latpar = vegards_volume(species,nType,cellVolume)
     final = atoms(enum.title * " str #: " * string(enumStruct.strN),latpar,mink ? minkowski_reduce(sLV,1e-5) : sLV,nType,nAtoms,["C"],aBas,velocities, masses,aType,["Unk" for i in nType],energies,order,lj_vec)
     CartesianToDirect!(final)
@@ -896,10 +914,11 @@ end
 function set_random_unit_velocities!(atoms::atoms, KE_max::Float64)
 #    masses = vcat(atoms.masses...)  # Flatten the masses vector.
     # Get a set of random unit vectors in 3D space.
-#    unit_vecs = ntuple(n -> SVector{3,Float64}(randn(3)), atoms.nAtoms)
-#    velocities = Vector{SVector{3,Float64}}(undef,atoms.nAtoms)
     single_vec = zeros(MVector{3,Float64})  # 1 allocation here
-    #    unit_vecs = [SVector{3,Float64}(randn(3)) for i=1:atoms.nAtoms]
+
+
+    # In 3D the magnitude of the velocity should follow a r^1/3N distribution
+    # where N is the number of atoms.  Generate a magnitude from this distribution.
     for iAtom=1:atoms.nAtoms
         randn!(single_vec)  # One allocation here... Why?
         norm_vec = norm(single_vec)
@@ -910,22 +929,8 @@ function set_random_unit_velocities!(atoms::atoms, KE_max::Float64)
         mag = rand()^(1.0/(3.0 * atoms.nAtoms))
         scaledMag = mag * sqrt(2.0 * KE_max/atoms.nAtoms / atoms.masses[iAtom])
         atoms.velocities[iAtom] = scaledMag * unit_vec
-#        unit_vecs[i] /= norm(unit_vecs[i])
     end
-    # In 3D the magnitude of the velocity should follow a r^1/3N distribution
-    # where N is the number of atoms.  Generate a magnitude from this distribution.
-#    mag = rand()^(1/(3 * atoms.nAtoms))
-#    velocities = similar(unit_vecs)
- #   for iAtom=1:atoms.nAtoms
- #       scaledMag = mag * sqrt(2 * KE_max/atoms.nAtoms / atoms.masses[iAtom])
- #       velocities[iAtom] = scaledMag * unit_vecs[iAtom]
-    #    println("check norm: ",norm(velocities[iAtom]))
-    #    println("mag: ", scaledMag)
- #   end
-#    atoms.velocities .= velocities
-#    scaledMag = mag * sqrt.([2 * KE_max ./ x for x in atoms.masses])
-#    velocities = [scaledMag[x][y] .* unit_vecs[x][y] for x in 1:length(types) for y in 1:length(x)]# * unit_vecs
-#    return velocities
+
 end
 
 
@@ -970,15 +975,15 @@ function precalc_LJ_distances!(atoms::atoms,cutoff)
     atoms.lj_vec .*= 0.5
 end
 
-function eval_PE_LJ(atoms::atoms,model;force_recalc = false)
+function eval_PE_LJ(atoms::atoms,model;force_recalc = true)
     nInteractions = Int(model.order * (model.order + 1)/2)
     s = SVector{6,Float64}(atoms.lj_vec)  
     if force_recalc
-       # println("recalculating")
+#        println("recalculating")
         atoms.lj_vec .= 0.0
         precalc_LJ_distances!(atoms,model.cutoff)
     elseif all(s .== 0.0)
-       # println("Calculating Distances")
+#        println("Calculating Distances")
         precalc_LJ_distances!(atoms,model.cutoff)
     end
     # 1 allocation above this point
@@ -986,8 +991,6 @@ function eval_PE_LJ(atoms::atoms,model;force_recalc = false)
     ϵ = SVector{3,Float64}(model.ϵ)
     coeffs = vcat(-1.0 * ϵ .* σ.^6, ϵ .* σ.^12)
 
-#    println(coeffs)
-    #println(atoms.lj_vec)
     totalEnergy = dot(atoms.lj_vec,coeffs)
 
     return (totalEnergy + model.offset) * model.stdEnergy + model.meanEnergy
@@ -996,36 +999,36 @@ end
     
 
 
-function gradientForce(model,atoms,atom::Int64; eps = 1e-3)
+function gradientForce(model,atoms,atom::Int64,cell_P; eps = 1e-3)
     fVec = zeros(MVector{3,Float64})
 
     # Calculate x-component of force
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(eps,0,0)
-    energyOne = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyOne = eval_energy(atoms,model,P = cell_P,do_KE = false)
     DirectToCartesian!(atoms)
     atoms.positions[atom] += SVector{3,Float64}(2 * eps,0,0)
-    energyTwo = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyTwo = eval_energy(atoms,model,P = cell_P,do_KE = false)
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(eps,0,0)  # Put it back where it was.
     fVec[1] = -(energyTwo - energyOne)/(2 * eps)
 
     # Calculate the y-component of the force
     atoms.positions[atom] -= SVector{3,Float64}(0,eps,0)
-    energyOne = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyOne = eval_energy(atoms,model,P = cell_P,do_KE = false)
     DirectToCartesian!(atoms)
     atoms.positions[atom] += SVector{3,Float64}(0,2 * eps,0)
-    energyTwo = eval_energy(atoms,model,do_KE = false,force_recalc = true)
+    energyTwo = eval_energy(atoms,model,P = cell_P,do_KE = false)
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(0,eps,0)  # Put it back where it was.
     fVec[2] = -(energyTwo - energyOne)/(2 * eps)
 
     # Find z-component of force
     atoms.positions[atom] -= SVector{3,Float64}(0,0,eps)  # Move atom downward
-    energyOne = eval_energy(atoms,model,do_KE = false,force_recalc = true)        # Calculate energy
+    energyOne = eval_energy(atoms,model,P = cell_P,do_KE = false)        # Calculate energy
     DirectToCartesian!(atoms)
     atoms.positions[atom] += SVector{3,Float64}(0,0,2 * eps)  # Move atom upward
-    energyTwo = eval_energy(atoms,model,do_KE = false,force_recalc = true)           # Calculate energy
+    energyTwo = eval_energy(atoms,model,P = cell_P,do_KE = false)           # Calculate energy
     DirectToCartesian!(atoms)
     atoms.positions[atom] -= SVector{3,Float64}(0,0,eps)  # Put it back where it was.
     fVec[3] = -(energyTwo - energyOne)/(2 * eps)      # Calculate component of gradient
@@ -1041,7 +1044,6 @@ function get_random_displacements(n_vecs,step_size)
     for j = 1:n_vecs
         rand!(single_vec)
         randVel = 2.0 .* SVector{3,Float64}(single_vec) .- 1.0
-#        randVel = convert(SVector{3},(  2 * rand(3) .- 1.0))
         displacements[j] = step_size*randVel/norm(randVel)
     end
     return displacements
@@ -1063,7 +1065,6 @@ function eval_forces(atoms,model)
 end
 
 function eval_forces!(atoms,model,forces)
-#    forces = zeros(SVector{3,Float64},length(atoms.positions))
 
     #if lowercase(model.name) == "lj"
     
@@ -1076,22 +1077,25 @@ function eval_forces!(atoms,model,forces)
 end
 
 # Galilean Monte Carlo
-function do_GMC!(config::atoms,model,walk_params,E_max)
+function do_GMC!(config::atoms,model,walk_params,E_max,cell_P)
 #    initialConfig = deepcopy(config)
-    oldEnergy = ase.eval_energy(config,model)
+    oldEnergy = ase.eval_energy(config,model,P = cell_P)
     ase.DirectToCartesian!(config)
 
     displacements = get_random_displacements(length(config.positions),walk_params.MC_atom_step_size)
-    #return nothing
 
     forces = [zeros(SVector{3,Float64}) for x = 1:length(config.positions)]
     n_reflect = 0
     n_reverse = 0
     n_accept = 0
-    begin_energy = eval_energy(config,model,force_recalc = true)
+    begin_energy = eval_energy(config,model,P = cell_P)
+    last_good_positions = similar(config.positions)
+    last_good_displacements = similar(displacements)
     for iWalk = 1:walk_params.atom_traj_length
-#slow        last_good_positions = deepcopy(config.positions)
-#slow        last_good_displacements = deepcopy(displacements)
+#        energy_start = eval_energy(config,model,P = cell_P)  # Recalculate the energy after the displacement.
+#        println("Energy at beginning: ", energy_start)
+        last_good_positions .= config.positions
+        last_good_displacements .= displacements
 
         config.positions .+= displacements  # Propogate the postions forward
         mapIntoCell!(config)
@@ -1099,7 +1103,7 @@ function do_GMC!(config::atoms,model,walk_params,E_max)
             println(displacements)
             error("Found NaNs")
         end
-        energy_after_displacement = eval_energy(config,model,force_recalc = true)  # Calculate the new energies
+        energy_after_displacement = eval_energy(config,model,P = cell_P)  # Calculate the new energies
         ase.DirectToCartesian!(config)
         if energy_after_displacement > E_max  # If we went uphill, we need to try and re-direct the displacements in the direction of the net force.
             eval_forces!(config,model,forces)
@@ -1116,38 +1120,24 @@ function do_GMC!(config::atoms,model,walk_params,E_max)
                 println(forces)
                 error("Found NaNs in displacement 1")
             end
-            config.positions .+= displacements
-            n_reflect += 1
-            mapIntoCell!(config)
-            energy_after_deflection = ase.eval_energy(config,model,force_recalc = true)
-            if energy_after_deflection > E_max  # Reverse
-#                println("Reversing!!")
-#slow                config.positions .= deepcopy(last_good_positions)
-#slow                displacements = -1.0 * deepcopy(last_good_displacements)
-                config.positions .-= displacements # Undo the displacement
-                mapIntoCell!(config)
- 
+            config.positions .+= displacements # Reflect  
+            n_reflect += 1  # Count the number of reflections
+            mapIntoCell!(config)  # Map the positions back into the cell.
+            energy_after_deflection = ase.eval_energy(config,model,P = cell_P)  # Calculate the new energy
+            if energy_after_deflection > E_max  # Reflection failed!. Revert positiosn and reverse displacements 
+                config.positions .= last_good_positions  # Revert the positions
+                displacements .= -1.0 .* last_good_displacements  # Reverse the displacements
 
-                # Get the original displacements back. 
-                for i = 1:config.nAtoms
-                    displacements[i] -= (2 * (dot(displacements[i], nHat[i]))) * nHat[i]
-                end
-                config.positions .-= displacements  # Get back to where I was originally.
-                mapIntoCell!(config)
-                displacements .*= -1.0  # Reverse the displacements
                 if any((isnan(z) for x in displacements for y in x for z in y))
                     println(displacements)
                     error("Found NaNs in displacement 2")
                 end
-                n_reflect -= 1
-                n_reverse += 1
-#                energy_after_reverse = eval_energy(config,model,force_recalc = true)
+                n_reflect -= 1  # Undo the reflection count
+                n_reverse += 1  # Update the reverse count
             else  # Deflection accepted
-         #       println("Deflection accepted")
                 config.energies[2] = energy_after_deflection
             end
         else
-         #   println("Displacement accepted")
             n_accept += 1
             config.energies[2] = energy_after_displacement
         end
@@ -1159,7 +1149,7 @@ end
 
 # Perform a random walk on a single configuration subject to the constraint that the total energy be less than the cutoff
 # Not walking using the force vector (GMC), just random walks.  This may not work well for some systems.
-function do_MC!(atoms::atoms,model,walk_params,E_max) 
+function do_MC!(atoms::atoms,model,walk_params,E_max,cell_P) 
     n_accept = 0
     n_steps = walk_params.atom_traj_length * atoms.nAtoms  # Total number of steps in the random walk.
     for iWalk in 1:walk_params.atom_traj_length
@@ -1167,7 +1157,7 @@ function do_MC!(atoms::atoms,model,walk_params,E_max)
             randDisplace = (2*rand(SVector{3,Float64}) .- 1.0) * walk_params.MC_atom_step_size
             atoms.positions[iAtom] += randDisplace
             mapIntoCell!(atoms)
-            newEnergy = eval_energy(atoms,model,force_recalc = true) # Want total energies for NS
+            newEnergy = eval_energy(atoms,model,P = cell_P) # Want total energies for NS
             if newEnergy > E_max  # reject move
                 atoms.positions[iAtom] -= randDisplace
             else # Otherwise, update the energy 
@@ -1191,12 +1181,11 @@ function eval_KE(atoms)
     for i = 1:atoms.nAtoms
         KE += 1/2 * atoms.masses[i] * norm(atoms.velocities[i])^2
     end
-#    KE = 1/2 * atoms.masses .* (x' * x for x in atoms.velocities)
     return KE
 end
 
 
-function eval_energy(atoms,model;P = 0.0,do_KE = true, force_recalc = false)
+function eval_energy(atoms,model;P = 0.0,do_KE = true, force_recalc = true)
     energy = P * cell_volume(atoms)
 #    println("Energy after enthalpy term: ", energy)
     if do_KE
@@ -1326,8 +1315,6 @@ function vegards_volume(elements,atom_counts,volume)
     nAtoms = sum(atom_counts)
     nTypes = length(atom_counts)
     volume_per_atom= volume/nAtoms
-#    concentrations = (x/nAtoms for x in atom_counts)
-#    concentrations = ntuple(n->atom_counts[n]/nAtoms, nTypes)
     if length(elements) != nTypes
         error("Not enough elements specified")
     end
@@ -1361,65 +1348,38 @@ end
 # copying the positions and velocities at the beginning of the walk, and then copying them back at the end if the walk is rejected.
 """
 
-function do_MD!(atoms::atoms, model, walk_params;E_cutoff = NaN,KE_cutoff = NaN)
-    # Just copied over from MD. Needs checked!!!
+function do_MD!(atoms::atoms, model, walk_params,cell_P;E_cutoff = NaN,KE_cutoff = NaN)
 
     N = length(atoms.positions)
     forces = zeros(SVector{3,Float64},N)
     pre_positions = deepcopy(atoms.positions)
     pre_velocities = deepcopy(atoms.velocities)
     idx = 1
-    begin_energy = eval_energy(atoms,model,force_recalc = true)
+    begin_energy = eval_energy(atoms,model,P = cell_P)
     begin_KE = eval_KE(atoms)
     for i=1:walk_params.atom_traj_length
         eval_forces!(atoms,model,forces)
-#        println("check energy: ", eval_energy(atoms,model,force_recalc = true))
-#        for n=1:N
-#            forces[n] = get_single_atom_force_lj(model,atoms,n,[2,2,2])
-#        end
-#        display(forces)
 @.        atoms.velocities += forces / atoms.masses * 0.5 * walk_params.MD_time_step
-#        println("Check forces")
-#        display(forces)
-#        println("---------------------")
-#        println("positions before move",atoms.positions[1])
 @.        atoms.positions += atoms.velocities * walk_params.MD_time_step
- #       println("positions after move",atoms.positions[1])
         mapIntoCell!(atoms)  # We may have gone outside the cell, put the atoms back
- #       println("positions after map",atoms.positions[1])
         eval_forces!(atoms,model,forces)
 
-##        for n=1:N
-#            forces[n] = get_single_atom_force_lj(model,atoms,n,[2,2,2])
-#        end
 @.        atoms.velocities += forces / atoms.masses * 0.5 * walk_params.MD_time_step
-  #      display(forces)
     end 
-    final_energy = eval_energy(atoms,model, force_recalc = true)
+    final_energy = eval_energy(atoms,model,P = cell_P)
     final_KE = eval_KE(atoms)
-   # println("Begin Total Energy:-------------------------------------> ", begin_energy)
-   # println("Final Total Energy: ", final_energy)
-   # println("Final Kinetic Energy: ", final_KE)
-   # println("reject eps: ", walk_params.MD_reject_eps)
     
     if abs(final_energy - begin_energy) > walk_params.MD_reject_eps * final_KE
-    #    println("Rejecting on non-energy conserving MD walk")
         n_accept = 0
         atoms.positions .= deepcopy(pre_positions)
         atoms.velocities .= deepcopy(pre_velocities)
- #       println("Beginning Energy:", begin_energy)
- #       println("Final Energy:", final_energy)
         return (1,n_accept)
     elseif !isnan(E_cutoff) && !isnan(KE_cutoff)
         if final_energy > E_cutoff || final_KE > KE_cutoff
-     #       println("rejecting")
-            #println("End energy (check): ", final_energy)
-            #println("E-max (check): ", E_max)
             n_accept = 0
             atoms.positions .= deepcopy(pre_positions)
             atoms.velocities .= deepcopy(pre_velocities)
-        else#if final_energy < E_cutoff || final_KE < KE_cutoff
-      #      println("Accepting")
+        else
             n_accept = 1
             atoms.energies[2] = final_energy
             atoms.velocities .*= -1.0
