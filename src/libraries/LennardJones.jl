@@ -186,11 +186,10 @@ end
 function logNormal(data::DataSets.DataSet,model,σ::Float64)::Float64
     thesum = 0.0
     for i = 1:length(data.configs)
-        thesum += (data.configs[i].energies[1] - ase.eval_energy(data.configs[i],model))^2
+        thesum += (data.configs[i].energies[1] - ase.eval_energy(data.configs[i],model,force_recalc = false))^2
     end
     thesum *= - 1/(2 * σ^2)
     
-#    @time "thesum" thesum =  -data.nData/2 *log(σ^2) - 1/(2 * σ^2) * sum([(i.energyPerAtomFP - totalEnergy(i,LJ))^2   for i in data.configs])
     return -length(data.configs)/2 *log(σ^2) + thesum
 
 end

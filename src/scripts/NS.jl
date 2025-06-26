@@ -14,4 +14,9 @@ LJ_average = LennardJones.get_LJ_averages(resultsPath)
 myNS = nSampling.initialize(input["params"],LJ_average);# 10k allocations.  Need to optimize this.
 nSampling.tune_step_sizes!(myNS,LJ_average)
 nSampling.run_NS(myNS,LJ_average)
+T = collect(1:0.1:50000)
+H,Z,Cp = nSampling.post_process(joinpath(cDir,"NS.out"),T)
 
+plot(T[1:end],Z)
+fcc = ase.fromPOSCAR(joinpath(cDir,"POSCAR.fcc"),["Ag"])
+ase.eval_energy(fcc,LJ_average)

@@ -8,7 +8,8 @@ using LinearAlgebra
 using Distributions
 using Random
 using TimerOutputs
-
+using DelimitedFiles
+using DataStructures # For circular buffers 
 
 mutable struct NS_walker_params
     n_single_walker_steps:: Int64
@@ -230,12 +231,20 @@ function run_NS(NS::NS,LJ::LennardJones.model)
     V = (NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1)
     cDir = pwd()
 
+
+
+
     i = 1
     io = open(joinpath(cDir,"NS.out"),"w")
     write(io, "N_walkers = " * string(NS.n_walkers) * "\n")
     write(io, "N_cull = " * string(NS.n_cull) * "\n")
     write(io, "N_steps_per_walker = " * string(NS.n_iter) * "\n")
     write(io, "eps = " * string(NS.eps) * "\n")
+    write(io, "cell pressure = " * string(NS.cell_P) * "\n")
+
+
+    E_max_history = CircularBuffer{Float64}(1000)
+    kB = 8.617e-5
     perms = zeros(MVector{length(NS.walkers),Int})
     while V > NS.eps
 #    for i= 1:100
@@ -247,14 +256,22 @@ function run_NS(NS::NS,LJ::LennardJones.model)
         perms = reverse(perms) # 1 allocation
         #perms =  reverse(sortperm([i.energies[2] for i in NS.walkers]))
        # println(sort([i.energyPerAtomModel for i in NS.walkers]))
+        
         E_max = NS.walkers[perms[NS.n_cull]].energies[2]  # 3 allocations
+        push!(E_max_history,E_max)
         # Which configs need to be thrown out.
         forDelete = perms[1:NS.n_cull]  # 2 allocations
         # Which configs can be kept
         keeps = perms[NS.n_cull + 1: end]  # 2 allocations
+        if i > 1000
+            estimate_beta = 999 * log((NS.n_walkers + 1.0 - NS.n_cull)/(NS.n_walkers + 1))/(E_max_history[end] - E_max_history[1])
+            estimate_T = 1/(kB * estimate_beta)
+            println("Current temperature: $estimate_T K")
+        end
         println("Energy cutoff")
         display(E_max)
-        println("PE (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,do_KE = false))
+        println("H (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,do_KE = false))
+        println("PE (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,do_KE = false))
         println("KE (lowest energy cull): ", ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
         println("Total (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P))
 
@@ -281,7 +298,7 @@ function run_NS(NS::NS,LJ::LennardJones.model)
         V = ((NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1))^i
         write(io,string(V) * " ")
         write(io,string(E_max) * " \n")
-
+        global E_max_previous = E_max # Save previous E_max for calculating temperature
     end
 
     close(io)
@@ -544,6 +561,56 @@ function do_cell_shape_walk!(atoms::ase.atoms, walker_params,cell_P)
     return atoms
 end
 
+function get_log_weights(n_Es,n_walkers,n_cull)
+    log_weights = zeros(n_Es)
+
+    for n = 1:n_Es
+        log_an = 0
+        for i = 1:n
+            log_an += log(n_Es - mod(i,n_cull)) - log(n_Es + 1 - mod(i,n_cull))
+        end
+        log_weights[n] = log_an - log(n_Es + 1 - mod(n + 1,n_cull))#+ log(1 - (n_Es - mod((n + 1),n_cull) )/(n_Es + 1 - mod((n + 1),n_cull)))
+    end
+
+    return log_weights
+
+end
+
+
+function post_process(out_file,T)
+
+    open(out_file) do file
+        global n_walkers = parse(Int,split(readline(file))[3])
+        global n_cull = parse(Int,split(readline(file))[3])
+    end
+    data = readdlm(out_file,skipstart = 5)
+    n_walkers = 
+    V = data[:,1]
+    H = data[:,2]
+    n_Es = length(H)
+    log_weights = get_log_weights(n_Es,n_walkers,n_cull)
+    #println(H)
+
+    kB = 8.617e-5
+#    T = collect(1:.5:1000)
+    β = 1/(kB .* T)
+    Z = zeros(eltype(T), size(T))
+    for (idx,temp) = enumerate(T)
+        beta = 1/(kB * temp)
+        log_Z_terms = log_weights .- beta .* H # Vector of Z values for a given temperature
+        shift = maximum(log_Z_terms)
+        temp = log_Z_terms .- shift
+        Z_term = exp.(log_Z_terms .- shift)
+        
+        Z[idx] = sum(Z_term)
+
+    end        
+    
+    log_Z = log.(Z)
+    H_avg = (log_Z[2:end] .- log_Z[1:end - 1]) ./ (β[2:end] .- β[1:end - 1])
+    Cp = (H_avg[2:end] .- H_avg[1:end - 1]) ./ (T[3:end] .- T[1:end - 2])
+    return H_avg,Z,Cp
+end
 
 
 
