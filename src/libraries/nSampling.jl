@@ -225,21 +225,20 @@ function reverse_sort_energies(NS)
 
 end
 
-function run_NS(NS::NS,LJ::LennardJones.model)
+function run_NS(NS::NS,LJ::LennardJones.model, output_file)
     println("Reading the file")
     V = (NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1)
     cDir = pwd()
 
     i = 1
-    io = open(joinpath(cDir,"NS.out"),"w")
+    io = open(joinpath(cDir, output_file),"w")
     write(io, "N_walkers = " * string(NS.n_walkers) * "\n")
     write(io, "N_cull = " * string(NS.n_cull) * "\n")
     write(io, "N_steps_per_walker = " * string(NS.n_iter) * "\n")
     write(io, "eps = " * string(NS.eps) * "\n")
     perms = zeros(MVector{length(NS.walkers),Int})
 #    while V > NS.eps
-    for i= 1:500
-        elapsed = @elapsed begin 
+    for i= 1:5
             println(i)
             println("V = ", V)
             ## Find the top Kr highest energies
@@ -282,7 +281,7 @@ function run_NS(NS::NS,LJ::LennardJones.model)
         V = ((NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1))^i
         write(io,string(V) * " ")
         write(io,string(E_max) * " \n")
-
+        
     end
     close(io)
 end
