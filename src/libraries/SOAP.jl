@@ -12,6 +12,8 @@ struct descriptor
     n_max::Integer  # Max number of radial basis functions.
     l_max::Integer # Max angular momentum.
     r_cutoff::Float64  # Cutoff radius for the radial basis functions.
+    cutoff_soft:: Float64
+    cutoff_hard:: Float64
     σ::Float64  # Standard deviation for the Gaussians placed at each atom.
     W::Matrix{Float64}  # Matrix of coefficients for radial basis
 #    p_vector::Vector{Float64}
@@ -37,8 +39,8 @@ function calculate(crystal,soap)
 #    for (iType, atoms)  in enumerate(crystal.positions), atom in atoms, (jType,atoms) in enumerate(crystal.positions), l = 0:soap.l_max,n=1:soap.n_max,np=1:soap.n_max
         for l = 0:soap.l_max,n=1:soap.n_max,np=n:soap.n_max
         for m  = -l:l
-            c = c_nlm(crystal,crystal.positions[1][1],1,n,l,m,soap)  # Calculate the coefficients for the spherical harmonics.
-            cp = c_nlm(crystal,crystal.positions[1][1],1,np,l,m,soap)  # Calculate the coefficients for the spherical harmonics.
+            c = c_nlm(crystal,crystal.positions[1],1,n,l,m,soap)  # Calculate the coefficients for the spherical harmonics.
+            cp = c_nlm(crystal,crystal.positions[1],1,np,l,m,soap)  # Calculate the coefficients for the spherical harmonics.
             #println(c, cp)
             p_vector[counter] += c * conj(cp)  # Add the coefficients to the p_vector.
     
@@ -50,6 +52,36 @@ function calculate(crystal,soap)
     return p_vector
 end
 
+
+function N_n(n,soap)
+    return sqrt(soap.cutoff_hard/(2 * n + 5))
+end
+
+function b_n(n,r_j,soap)
+    if n == -3
+        return 0.0
+    else
+        
+        if r < soap.cutoff_soft
+            return -(1.0 - r/soap.cutoff_hard )^(n + 1) * soap.sigma^2/soap.cutoff_hard/N_n(n) * exp(-(r - r_j)^2 /(2 * soap.sigma^2))
+                   + N_n(n - 1)/N_n(n) *(1 - r_j/soap.cutoff_hard) * b_n(n-2,r,soap)
+                   + N_n(n-2)/N_n(n) * (n + 1) * soap.sigma^2/soap.cutoff_hard^2  * b_n(n-2,r,soap)
+        
+        elseif r < soap.cutoff_hard
+
+        else
+
+
+        end
+        
+        b_n(n - 1,r,soap) + b_n(n-2,r,soap)
+
+
+    end
+
+
+
+end
 
 #Evaluate the spherical harmonics.
 function Ylm_complex(l,m,θ,ϕ)
@@ -80,9 +112,9 @@ function getLoopBounds(crystal,soap)
 end
 
 
-function ρ(crystal,centerAtom,atomType,r,soap)
+function ρ(crystal,centerAtom,atomType,r,soap,separable = false)
     # Get the coordinates of the center atom in Cartesian coordinates.
-    centerAtom = Crystal.DirectToCartesian(crystal.latpar * crystal.lVecs,centerAtom)
+    centerAtom = ase.DirectToCartesian(crystal.latpar * SMatrix(crystal.lVecs),centerAtom)
     rho = 0.0
     addVec = zeros(3)  # This is the vector that will be added to the neighbor atom to find all periodic images.
     # r is the distance from the center atom to the evaluation point.
@@ -90,17 +122,25 @@ function ρ(crystal,centerAtom,atomType,r,soap)
 #    loopBounds = SVector{3,Int64}(convert.(Int64,cld.(soap.r_cutoff ,[norm(x) for x in eachcol(crystal.latpar * crystal.lVecs)] )))    
  #   println("--------------------")
  #   println(r)
+    cell = crystal.latpar * SMatrix(crystal.lVecs)
     for neighborAtom in crystal.positions[atomType] # Loop over all atoms of type "atomType" in the crystal.
         
         # And these three inner loops are to find all of the periodic images of a neighboring atom.
         for i = -loopBounds[1]:loopBounds[1], j = -loopBounds[2]:loopBounds[2], k= -loopBounds[3]:loopBounds[3]
             addVec .= (i,j,k) 
-            newAtom = neighborAtom + addVec
-            newCart = Crystal.DirectToCartesian(crystal.latpar * crystal.lVecs,newAtom)
-            d = norm(centerAtom + r - newCart)   # This is the distance from the neighbor atom to the observation point. The gaussian should be evaluated at this distance.
-            if norm(newCart - centerAtom) < soap.r_cutoff + 3 * soap.σ && !isapprox(norm(newCart - centerAtom),0,atol = 1e-3)
+            newAtom = neighborAtom .+ addVec
+            newCart = ase.DirectToCartesian(cell,newAtom)
+            r_j = newCart - centerAtom
+            if norm(r_j) < soap.r_cutoff + 3 * soap.σ && !isapprox(norm(r_j),0,atol = 1e-3)
                # println(exp(-1 * (d^2)/(2 * soap.σ^2)))
-                rho += exp(-1 * (d^2)/(2 * soap.σ^2)) # 1/sqrt(2 * pi * soap.σ^2) * 
+                if separable    
+                    d = norm(r_j) - norm(r)
+                    d_perp = dot(r_j, norm(r_j) .* r /norm(r))
+                    rho += exp(-d^2/soap.σ^2) * exp(-dot(r_j,r_j)/soap.σ^2) * exp(d_perp/soap.σ^2) 
+                else
+                    d = norm(r - r_j)   # This is the distance from the neighbor atom to the observation point. The gaussian should be evaluated at this distance.
+                    rho += exp(-1 * (d^2)/(2 * soap.σ^2)) # 1/sqrt(2 * pi * soap.σ^2) * 
+                end
             end
         end
     end 

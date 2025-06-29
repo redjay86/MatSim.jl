@@ -4,21 +4,12 @@ using ase
 using StatsBase
 using Printf
 using YAML
-#using metrop
-#using LazySets
 using QHull
-#using LennardJones
 using enumeration
 
 struct DataSet
     title:: String
     configs::Vector{ase.atoms}
-#    stdEnergy:: Float64
-#    meanEnergy::Float64
-#    offset::Float64
-#    nData::Int
-#    standardized::Bool
-#    fitTo::String
 end
 
 
@@ -44,16 +35,7 @@ function initialize(file;species = ["N-A", "N-A"],offset = 0.0)
 end
 
 
-
-
-
-
-
-
-
 function gss(file,model,species;readend = 100)
-#    filePath = joinpath(dirname(file), "structures.AgPt")
-#    pures = findPureEnergies(filePath)
     pureatoms = ase.fccPures(species)
     pures = []
     for pure in pureatoms
@@ -63,49 +45,8 @@ function gss(file,model,species;readend = 100)
 
     cDir = dirname(file)
     io = open(joinpath(cDir,"gss.out"),"w")
-#    for (idx,line) in enumerate(eachline(file))
     for idx in 1:readend
-        #println(idx)
- #       if idx > readend
- #           break
- #       end
-       # if idx < 16 
-       #     continue
-       # end
-
-
-
-#        hnfN = parse(Int,split(line)[2])
-#        hnf_degen = parse(Int,split(line)[3])
-#        label_degen = parse(Int,split(line)[4])
-#        total_degen = parse(Int,split(line)[5])
-#        sizeN = parse(Int,split(line)[6])
-#        n = parse(Int,split(line)[7])
-#        pgOps = parse(Int,split(line)[8])
-#        SNF = Diagonal(parse.(Int,split(line)[9:11]))
-#        a = parse(Int,split(line)[12])
-#        b = parse(Int,split(line)[13])
-#        c = parse(Int,split(line)[14])
-#        d = parse(Int,split(line)[15])
-#        e = parse(Int,split(line)[16])
-#        f = parse(Int,split(line)[17])
-#        HNF = LowerTriangular([a 0 0
-#                               b c 0 
-#                               d e f])
-#
-#        l = parse.(Int,split(line)[18:26])
-#        lTransform = hcat([l[i:i+2] for i=1:3:7]...)'
-#        println(split(line))
-#        labeling = split(line)[27]
-#        arrows = try split(line)[28] catch y repeat("0",length(labeling)) end
-#        strN = idx - 15
-#        eStruct =  EnumStruct(strN,hnfN,hnf_degen,label_degen,total_degen,sizeN,n,pgOps,SNF,HNF,lTransform,labeling,arrows)
-#        println(idx)
         atoms = ase.from_enum(file,idx,String.(species))
-#        atoms = ase.from_enum(file,idx,["Na","Na"])
-        #display(atoms)
-
-#        atoms = ase.atoms(enum,eStruct,["Ag","Pt"],mink=true)
         atoms.model_energy = ase.eval_energy(atoms,model)
         conc = ase.get_concentrations(atoms)
         formationEnergyModel = ase.formationEnergy(atoms.model_energy,pures,conc)
@@ -116,12 +57,6 @@ function gss(file,model,species;readend = 100)
 end
 
 
-
-
-
-
-
-#DataSet(dSet) = fromases(dSet,standardize)
 
 function getConvexHull(file::String)
 
@@ -164,20 +99,14 @@ function getConvexHull(file::String)
 end
 
 function undoRescaling!(dataSet::DataSet,fitTo)
-    #meanEnergy = mean([i.FP_total_energy for i in dataSet.configs])
-    #stdEnergy = std([i.FP_total_energy for i in dataSet.configs])
-    #offset = 3
     for i in dataSet.configs
         if fitTo == "peratom"
             i.energies[1] = i.energies[1] * i.nAtoms
-#        else
-#            i.FP_total_energy = (i.FP_total_energy + dataSet.offset)*dataSet.stdEnergy+dataSet.meanEnergy
         end
     end
-    #dataSet.offset = offset
-#    dataSet.standardized = false
-    return nothing #stdEnergy, meanEnergy
 end
+
+# not used anymore, but kept for reference.
 function standardizeData!(dataSet::DataSet)
     #meanEnergy = mean([i.FP_total_energy for i in dataSet.configs])
     #stdEnergy = std([i.FP_total_energy for i in dataSet.configs])
@@ -189,49 +118,7 @@ function standardizeData!(dataSet::DataSet)
 #    dataSet.standardized = true
 #    return nothing #stdEnergy, meanEnergy
 end
-#function set_training_set(dSet,standardize,fitTo)
-#    if standardize
-#        println("Standardizing Data")
-#        if lowercase(fitTo) == "peratom"
-#            println("Using per atom energies")
-#            for i in dSet.configs
-#                i.fitEnergy = (i.FP_total_energy - dSet.meanEnergy)/dSet.stdEnergy-dSet.offset
-#            end
-#        elseif lowercase(fitTo) == "total"
-#            println("Using total energies")
-#            for i in dSet.configs
-#                i.fitEnergy = (i.FP_total_energy * ase.nAtoms(i) - dSet.meanEnergy)/dSet.stdEnergy-dSet.offset
-#            end
-#        elseif lowercase(fitTo) == "fenth"
-#            println("Using formation energies")
-#            for i in dSet.configs
-#                i.fitEnergy = (i.formationEnergyFP - dSet.meanEnergy)/dSet.stdEnergy-dSet.offset
-#            end
-#        end
-#        return DataSet(dSet.title,dSet.configs,dSet.stdEnergy,dSet.meanEnergy,dSet.offset,dSet.nData,true,lowercase(fitTo))
-#    else
-#        println("Not standardizing data")
-#        if lowercase(fitTo) == "peratom"
-#            println("Using per atom energies")
-#            for i in dSet.configs
-#                i.fitEnergy = i.FP_total_energy
-#            end
-#        elseif lowercase(fitTo) == "total"
-#            println("Using total energies")
-#            for i in dSet.configs
-#                i.fitEnergy = i.FP_total_energy * ase.nAtoms(i)
-#            end
-#        elseif lowercase(fitTo) == "fenth"
-#            println("Using formation energies")
-#            for i in dSet.configs
-#                i.fitEnergy = i.formationEnergyFP
-#            end
-#        end
-#        return DataSet(dSet.title,dSet.configs,dSet.stdEnergy,dSet.meanEnergy,dSet.offset,dSet.nData,false,lowercase(fitTo))
-#
-#    end
-#
-#end
+
 
 function getTraining_Holdout_Sets(file::String;nTraining=100,species = ["N-A", "N-A"])
     # If you give a structures.in file directly, read directly from that. 
@@ -281,7 +168,7 @@ function getTraining_Holdout_Sets(dset::DataSet,nStructures)
     trainingSet = DataSet(dset.title,dset.configs[training])
     holdoutSet = DataSet(dset.title,dset.configs[holdout])
 
-    return trainingSet, holdoutSet#set_training_set(trainingSet,standardize,fitTo), holdoutSet
+    return trainingSet, holdoutSet
     
 end
 
@@ -301,10 +188,9 @@ function findPureEnergies(filePath)
     pures = Vector{ase.atoms}(undef,order)  # Initialize a vector to hold the pure substances.
     cLines = Vector{String}()
     counter = 0
-    energyType = "peratom"
     for (idx,line) in enumerate(eachline(filePath))
         if idx == 1
-            energyType = split(line)[1]
+            global energyType = split(line)[1]
             continue
         end
         if idx < 3
@@ -312,13 +198,10 @@ function findPureEnergies(filePath)
         end
         if occursin("#--",line)
             thisCrystal = ase.fromPOSCAR(cLines,["N-a", "N-a"])
-#            energy = parse(Float64,cLines[end])
             if lowercase(energyType) == "peratom"
-                thisCrystal.energies[1]= parse(Float64,cLines[end]) * thisCrystal.nAtoms
+                thisCrystal.energies[1]= parse(Float64,cLines[end]) * thisCrystal.nAtoms # Save the total energy.
             elseif lowercase(energyType) == "total"
                 thisCrystal.energies[1] = parse(Float64,cLines[end])
-#            elseif lowercase(energyType) == "fenth"
-#                thisCrystal.formationEnergyFP = parse(Float64,cLines[end])
             else 
                 error("Can't recognize the first line of structures.in")
             end
@@ -335,13 +218,6 @@ function findPureEnergies(filePath)
     return pures
 end
 function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = false,offset = 0.0)
-    # Get the energies of the pure substances first so we can calculate formation energies
-#    pures = findPureEnergies(filePath)
-#    foundPures = true
-#    if all(pures .== 0)
-#        foundPures = false
-#        println(" Couldn't find pure energies. Formation Energies will not be accurate")
-#    end
 
     # The species list should always be in reverse alphabetical order. (All VASP calculations are performed under that convention)
     sort!(species,rev = true)
@@ -350,7 +226,6 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
     cLines = Vector{String}()
     title = join(species,"-")
     counter = 0
-#    energyType = "peratom"
     for (idx,line) in enumerate(eachline(filePath))
         # The first line should tell me what kind of energies are present.
         if idx == 1
@@ -380,10 +255,6 @@ function fromStructuresIn(filePath,species::Vector{String};overwriteLatPar = fal
         end
 
     end
-#    meanEnergy = mean([i.FP_total_energy for i in data])
-#    stdEnergy = std([i.FP_total_energy for i in data])    
-#    println("Mean Energy: ",meanEnergy)
-#    println("Std Energy: ",stdEnergy)
     return DataSet(title,data)
 end
 
@@ -395,19 +266,13 @@ function stdEnergy(dset::DataSet)
     return std([i.FP_total_energy for i in dset.configs])
 end
 function rescaleData!(dataSet::DataSet,fitTo::String)
-#    meanEnergy = mean([i.FP_total_energy for i in dataSet.configs])
-#    stdEnergy = std([i.FP_total_energy for i in dataSet.configs])
-    #offset = 3
+    # This function now just sets the energy value to the prescribed value before the fitting process.
+    # The data set no longer gets modified using the mean and standard deviation.  That all happens in the model now.
     for i in dataSet.configs
         if fitTo == "peratom"
-            i.energies[1] = i.energies[1]/i.nAtoms#(i.FP_total_energy/ase.nAtoms(i) - dataSet.meanEnergy)/dataSet.stdEnergy-dataSet.offset
-       # else
-       #     i.FP_total_energy = (i.FP_total_energy - dataSet.meanEnergy)/dataSet.stdEnergy-dataSet.offset
+            i.energies[1] = i.energies[1]/i.nAtoms
         end
     end
-#    dataSet.offset = offset
-#    dataSet.standardized = true
-    return nothing #stdEnergy, meanEnergy
 end
 
 function writeStructuresIn(path::String, structures::DataSet)
