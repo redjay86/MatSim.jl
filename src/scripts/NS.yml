@@ -7,6 +7,9 @@ params:
   atom_traj_length: 8 # Length of random walk.
   eps: 1e-8 # Algorithm stopping criteria
   n_iter: 2000  # Number of NS iterations per walker.
+  converge_down_to_T: 25   #Either this or n_iter must be specified. If this param is greater than 0 it will have precedence over n_iter.
+  T_calc_delay: 1000   #For finite differnce derivatives to calculate the temperature
+  output_frequency: 1000 # How often should we print the collection of walkers
   atom_algorithm: MD # GMC,MC, MD 
   MC_atom_step_size: 0.0005  # Displacements of atoms in GMC as a multiple of max length between atoms (max_vol_per_atom * n_atoms)^(1/3))
   MD_time_step: 5.0e-5
