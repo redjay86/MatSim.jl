@@ -19,7 +19,7 @@ params:
   n_cell_volume_steps: 5
   n_cell_shear_steps: 8
   n_cell_stretch_steps: 8
-  cell_P: 0.62  # Atmospheric Pressure in units of eVs / A^3
+  cell_P: 6.2e-7  # Atmospheric Pressure in units of eVs / A^3
   min_aspect_ratio: 0.8
   max_volume_per_atom: 64.0
   volume_step_size: 0.5  # Actually volume per atom step size.
