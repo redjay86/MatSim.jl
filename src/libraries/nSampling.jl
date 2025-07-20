@@ -10,6 +10,7 @@ using Random
 using TimerOutputs
 using DelimitedFiles
 using DataStructures # For circular buffers 
+using Printf
 
 mutable struct NS_walker_params
     n_single_walker_steps:: Int64
@@ -34,6 +35,9 @@ struct NS
     n_walkers:: Int
     n_cull:: Int
     n_iter:: Int
+    converge_down_to_T::Int
+    T_calc_delay::Int
+    output_frequency::Int
     cell_P:: Float64
     eps:: Float64
     walker_params:: NS_walker_params
@@ -67,10 +71,22 @@ function NS_walker_params(inputs)
     nAtoms = sum(inputs["n_Atoms"])
     max_lc = (nAtoms * inputs["max_volume_per_atom"])^(1/3)  # This is the maximum lattice constant
 
-     return NS_walker_params(final_settings["n_single_walker_steps"],max_lc * final_settings["MC_atom_step_size"],final_settings["MD_time_step"],final_settings["MD_reject_eps"],final_settings["n_atom_steps"],
-        final_settings["n_cell_volume_steps"],final_settings["n_cell_shear_steps"],final_settings["n_cell_stretch_steps"],
-        final_settings["atom_traj_length"],final_settings["min_aspect_ratio"],final_settings["max_volume_per_atom"],
-        final_settings["volume_step_size"],final_settings["shear_step_size"],final_settings["stretch_step_size"],inputs["KE_max"],final_settings["atom_algorithm"])
+    return NS_walker_params(final_settings["n_single_walker_steps"],
+                            max_lc * final_settings["MC_atom_step_size"],
+                            final_settings["MD_time_step"],
+                            final_settings["MD_reject_eps"],
+                            final_settings["n_atom_steps"],
+                            final_settings["n_cell_volume_steps"],
+                            final_settings["n_cell_shear_steps"],
+                            final_settings["n_cell_stretch_steps"],
+                            final_settings["atom_traj_length"],
+                            final_settings["min_aspect_ratio"],
+                            final_settings["max_volume_per_atom"],
+                            final_settings["volume_step_size"],
+                            final_settings["shear_step_size"],
+                            final_settings["stretch_step_size"],
+                            inputs["KE_max"],
+                            final_settings["atom_algorithm"])
 end
 
 function NS_defaults()
@@ -80,6 +96,7 @@ function NS_defaults()
                     "atom_traj_length"=> 8, 
                     "eps"=> 1e-6,
                     "n_iter" => 2000,
+                    "converge_down_to_T" => -1,
                     "atom_algorithm"=> "MD", 
                     "MC_atom_step_size" => 0.5, 
                     "MD_time_step"=>0.1,
@@ -132,10 +149,33 @@ function initialize(inputs,model)
         configs[iConfig].energies[2] = ase.eval_energy(configs[iConfig],model,P = inputs["cell_P"])
     end
     walker_params.n_single_walker_steps = save_n_steps
-    return NS(inputs["n_walkers"],inputs["n_cull"],inputs["n_iter"],inputs["cell_P"],inputs["eps"],
+
+
+    return NS(inputs["n_walkers"],
+              inputs["n_cull"],
+              inputs["n_iter"],
+              inputs["converge_down_to_T"],
+              inputs["T_calc_delay"],
+              inputs["output_frequency"],
+              inputs["cell_P"],
+              inputs["eps"],
               walker_params,configs)
 end
 
+
+function rates_good(a_rates)
+
+    for val in values(a_rates)
+        if val[1] == 0 && val[2] == 0
+            continue
+        end
+        rate = val[2]//val[1]
+        if rate < 1//4 || rate > 1//2
+            return false
+        end
+    end
+    return true
+end
 function adjust_step_sizes!(walk_params,key,rate)
 
     if rate > 1//2
@@ -226,28 +266,59 @@ function reverse_sort_energies(NS)
 
 end
 
+
+function output_current_state(NS,iter)
+    cDir = pwd()
+    io = open(joinpath(cDir, "NS-" * string(iter) * ".configs"), "w")
+    for config in NS.walkers
+        write(io,"-----------------------------",'\n')
+        writedlm(io,config.latpar',' ')
+        writedlm(io,config.lVecs',' ')
+        writedlm(io,config.nType',' ')
+        write(io,config.coordSys[1],'\n')
+        counter = 1
+        for atom in config.positions
+            writedlm(io,atom',' ')
+            counter +=1
+        end
+
+
+    end
+    close(io)
+
+
+end
+
+function merge_rates!(old,to_add)
+    for key in keys(old)
+        old[key][1] += to_add[key][1] 
+        old[key][2] += to_add[key][2] 
+    end
+end
 function run_NS(NS::NS,LJ::LennardJones.model, output_file)
-    println("Reading the file")
+
     V = (NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1)
     cDir = pwd()
 
-
-
-
     i = 1
-    io = open(joinpath(cDir, output_file),"w")
-    write(io, "N_walkers = " * string(NS.n_walkers) * "\n")
-    write(io, "N_cull = " * string(NS.n_cull) * "\n")
-    write(io, "N_steps_per_walker = " * string(NS.n_iter) * "\n")
-    write(io, "eps = " * string(NS.eps) * "\n")
-    write(io, "cell pressure = " * string(NS.cell_P) * "\n")
+    ns_io = open(joinpath(cDir, output_file),"w")
+    @printf(ns_io, "N_walkers = %6.2f\n",NS.n_walkers)
+    @printf(ns_io, "N_cull = %4d\n",NS.n_cull)
+    @printf(ns_io, "N_steps_per_walker = %6d\n", NS.n_iter)
+    @printf(ns_io, "N_single_walker_steps = %6d\n",NS.walker_params.n_single_walker_steps)
+    @printf(ns_io, "converge_down_to_T = %6.2f\n",NS.converge_down_to_T)
+    @printf(ns_io, "eps = %5.2e\n",NS.eps)
+    @printf(ns_io, "cell pressure = %5.2f\n",NS.cell_P)
+    @printf(ns_io, "T-estimate    E-max \n")
+    @printf(ns_io, "-------------------\n")
 
-
-    E_max_history = CircularBuffer{Float64}(1000)
+    E_max_history = CircularBuffer{Float64}(NS.T_calc_delay)
     kB = 8.617e-5
     perms = zeros(MVector{length(NS.walkers),Int})
-    while V > NS.eps
-#    for i= 1:100
+
+    save_iter = 1
+    estimate_T = 1000000.
+    for i= 1:NS.n_iter * NS.n_walkers
         println(i)
         println("V = ", V)
         ## Find the top Kr highest energies
@@ -263,11 +334,16 @@ function run_NS(NS::NS,LJ::LennardJones.model, output_file)
         forDelete = perms[1:NS.n_cull]  # 2 allocations
         # Which configs can be kept
         keeps = perms[NS.n_cull + 1: end]  # 2 allocations
-        if i > 1000
-            estimate_beta = 999 * log((NS.n_walkers + 1.0 - NS.n_cull)/(NS.n_walkers + 1))/(E_max_history[end] - E_max_history[1])
+        if i > NS.T_calc_delay
+            estimate_beta = (NS.T_calc_delay - 1) * log((NS.n_walkers + 1.0 - NS.n_cull)/(NS.n_walkers + 1))/(E_max_history[end] - E_max_history[1])
             estimate_T = 1/(kB * estimate_beta)
             println("Current temperature: $estimate_T K")
+            if NS.converge_down_to_T > 0 &&  estimate_T < NS.converge_down_to_T
+                println("Target temperature reached. Terminating loop")
+                break
+            end
         end
+
         println("Energy cutoff")
         display(E_max)
         println("H (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P,do_KE = false))
@@ -275,7 +351,16 @@ function run_NS(NS::NS,LJ::LennardJones.model, output_file)
         println("KE (lowest energy cull): ", ase.eval_KE(NS.walkers[perms[NS.n_cull]]))
         println("Total (lowest energy cull): ", ase.eval_energy(NS.walkers[perms[NS.n_cull]],LJ,P= NS.cell_P))
 
-        if i %12 == 0  # 12 is pretty arbitrary.. Need a better way to see if need to re-tune
+
+        a_rates = Dict{String,MVector{2,Int}}("stretch"=>zeros(MVector{2,Int}),"shear"=>zeros(MVector{2,Int}),"volume"=>zeros(MVector{2,Int}), "atoms"=>zeros(MVector{2,Int}))
+        for replace_walker in forDelete
+            #Copy one of the configs that didn't get thrown out as the starting point
+            NS.walkers[replace_walker] = ase.copy_atoms(NS.walkers[sample(keeps,1)[1]])  # ~ 50 allocations
+            a_rates_single_walker = walk_single_walker!(NS.walkers[replace_walker],LJ,NS.walker_params,E_max,NS.cell_P)
+            merge_rates!(a_rates,a_rates_single_walker)
+        end
+
+        if !rates_good(a_rates) && mod(i,200) == 0
             println("Stopping to retune step sizes")
             energies_before = [ase.eval_energy(walker, LJ, P = NS.cell_P) for walker in NS.walkers]
             tune_step_sizes!(NS,LJ)
@@ -285,22 +370,26 @@ function run_NS(NS::NS,LJ::LennardJones.model, output_file)
             end
             println("Done with tune up------------------------------------------------->")
         end
-        for replace_walker in forDelete
-            #Copy one of the configs that didn't get thrown out as the starting point
-#            NS.walkers[replace_walker] = deepcopy(NS.walkers[sample(keeps,1)[1]])  # ~ 50 allocations
-            NS.walkers[replace_walker] = ase.copy_atoms(NS.walkers[sample(keeps,1)[1]])  # ~ 50 allocations
-            #println("E-max for this walker: ", E_max)
-            #println("Starting energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ))
-            walk_single_walker!(NS.walkers[replace_walker],LJ,NS.walker_params,E_max,NS.cell_P)
-            #println("Ending energy of this walker: (should be lower than E-max)", ase.eval_energy(NS.walkers[replace_walker],LJ))
-        end
+
         i += 1
         V = ((NS.n_walkers - NS.n_cull + 1)/(NS.n_walkers + 1))^i
-        write(io,string(V) * " ")
-        write(io,string(E_max) * " \n")
-        global E_max_previous = E_max # Save previous E_max for calculating temperature
+        println("writing to NS.out")
+        if i <= NS.T_calc_delay
+            @printf(ns_io,"-------   ")
+        else
+            @printf(ns_io,"%8.2f",estimate_T)
+        end
+        @printf(ns_io,"%8.3f\n",E_max)
+        flush(ns_io)
+        #global E_max_previous = E_max # Save previous E_max for calculating temperature
+
+        if mod(i,NS.output_frequency) == 0
+            output_current_state(NS,save_iter)
+            save_iter += 1
+        end
     end
-    close(io)
+
+    close(ns_io)
 end
 
 
@@ -582,9 +671,9 @@ function post_process(out_file,T)
         global n_walkers = parse(Int,split(readline(file))[3])
         global n_cull = parse(Int,split(readline(file))[3])
     end
-    data = readdlm(out_file,skipstart = 5)
-    n_walkers = 
-    V = data[:,1]
+    data = readdlm(out_file,skipstart = 6)
+#    n_walkers = 
+#    V = data[:,1]
     H = data[:,2]
     n_Es = length(H)
     log_weights = get_log_weights(n_Es,n_walkers,n_cull)
